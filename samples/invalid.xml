@@ -1,0 +1,3 @@
+<?xml version="1.0"?>
+<!DOCTYPE example [<!ENTITY unsafe SYSTEM "file:///etc/passwd">]>
+<example>&unsafe;</example>

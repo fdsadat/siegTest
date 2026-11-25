@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<NFSe xmlns="http://www.sped.fazenda.gov.br/nfse" versao="1.01">
+  <infNFSe Id="NFS35503082123456780001950000000000012026112500000001">
+    <DPS versao="1.01">
+      <infDPS>
+        <dhEmi>2026-11-25T12:00:00-03:00</dhEmi>
+        <prest><CNPJ>12345678000195</CNPJ><end><endNac><cMun>3550308</cMun><CEP>01001000</CEP></endNac></end></prest>
+        <toma><CPF>12345678909</CPF></toma>
+        <valores><vServPrest><vServ>350.75</vServ></vServPrest></valores>
+      </infDPS>
+    </DPS>
+  </infNFSe>
+</NFSe>

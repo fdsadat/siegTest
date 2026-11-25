@@ -1,0 +1,23 @@
+name: build-and-test
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - run: dotnet restore FiscalDocuments.sln
+      - run: dotnet build FiscalDocuments.sln -c Release --no-restore
+      - run: dotnet test FiscalDocuments.sln -c Release --no-build --logger 'trx;LogFilePrefix=results' --results-directory TestResults
+      - run: dotnet tool restore
+      - run: dotnet ef migrations has-pending-model-changes --project src/FiscalDocuments.Infrastructure --no-build --configuration Release
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-results
+          path: TestResults/**/*.trx

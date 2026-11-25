@@ -1,0 +1,10 @@
+.git
+.vs
+**/bin
+**/obj
+.env
+**/appsettings.Development.json
+artifacts
+TestResults
+.dotnet
+.packages

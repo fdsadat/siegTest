@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<nfeProc xmlns="http://www.portalfiscal.inf.br/nfe" versao="4.00">
+  <NFe>
+    <infNFe Id="NFe35261112345678000195550010000000011000000010" versao="4.00">
+      <ide><mod>55</mod><dhEmi>2026-11-25T10:00:00-03:00</dhEmi></ide>
+      <emit><CNPJ>12345678000195</CNPJ><xNome>Empresa ficticia</xNome><enderEmit><UF>SP</UF></enderEmit></emit>
+      <dest><CPF>12345678909</CPF></dest>
+      <total><ICMSTot><vNF>150.25</vNF></ICMSTot></total>
+      <infAdic><infCpl>Contato ficticio CPF 123.456.789-09</infCpl></infAdic>
+    </infNFe>
+  </NFe>
+</nfeProc>
