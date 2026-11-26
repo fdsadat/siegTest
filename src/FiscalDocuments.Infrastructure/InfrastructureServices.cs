@@ -3,10 +3,8 @@ using FiscalDocuments.Infrastructure.Messaging;
 using FiscalDocuments.Infrastructure.Persistence;
 using FiscalDocuments.Infrastructure.Xml;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.Design;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Logging;
 
 namespace FiscalDocuments.Infrastructure;
 
@@ -36,15 +34,5 @@ public static class InfrastructureServices
     {
         await using var scope = services.CreateAsyncScope();
         await scope.ServiceProvider.GetRequiredService<FiscalDbContext>().Database.MigrateAsync(ct);
-    }
-}
-
-public sealed class FiscalDbContextFactory : IDesignTimeDbContextFactory<FiscalDbContext>
-{
-    public FiscalDbContext CreateDbContext(string[] args)
-    {
-        var connection = Environment.GetEnvironmentVariable("ConnectionStrings__SqlServer")
-            ?? "Server=(localdb)\\MSSQLLocalDB;Database=FiscalDocuments;Integrated Security=true;TrustServerCertificate=true";
-        return new FiscalDbContext(new DbContextOptionsBuilder<FiscalDbContext>().UseSqlServer(connection).Options);
     }
 }

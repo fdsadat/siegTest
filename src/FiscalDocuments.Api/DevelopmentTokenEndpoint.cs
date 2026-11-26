@@ -41,5 +41,3 @@ public static class DevelopmentTokenEndpoint
         .Produces<DevelopmentTokenResponse>();
     }
 }
-
-public sealed record DevelopmentTokenResponse(string AccessToken, string TokenType, int ExpiresIn);

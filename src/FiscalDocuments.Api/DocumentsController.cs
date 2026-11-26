@@ -138,5 +138,3 @@ public sealed class DocumentsController(ISender sender) : ControllerBase
         finally { ArrayPool<byte>.Shared.Return(buffer, clearArray: true); }
     }
 }
-public sealed record BatchItem(int InputIndex, int StatusCode, Acceptance? Document, string? ErrorCode);
-public sealed record BatchResponse(IReadOnlyList<BatchItem> Results);

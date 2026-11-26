@@ -8,8 +8,6 @@ namespace FiscalDocuments.Infrastructure.Persistence;
 
 public sealed class SqlDocumentQueries(FiscalDbContext db, IFingerprints fingerprints) : IDocumentQueries
 {
-    private sealed record Cursor(DateTimeOffset IssuedAt, Guid Id, string FilterHash);
-
     public async Task<Page<DocumentItem>> ListAsync(DocumentFilter filter, CancellationToken ct)
     {
         if (filter.PageSize is < 1 or > 100) throw new AppException("invalid_page_size");
@@ -31,11 +29,11 @@ public sealed class SqlDocumentQueries(FiscalDbContext db, IFingerprints fingerp
         if (filter.Status.HasValue) query = query.Where(x => x.Processing.Status == filter.Status);
         if (filter.Cursor is not null)
         {
-            Cursor cursor;
+            DocumentCursor cursor;
             try
             {
                 if (filter.Cursor.Length > 2048) throw new FormatException();
-                cursor = JsonSerializer.Deserialize<Cursor>(Encoding.UTF8.GetString(Convert.FromBase64String(filter.Cursor))) ?? throw new FormatException();
+                cursor = JsonSerializer.Deserialize<DocumentCursor>(Encoding.UTF8.GetString(Convert.FromBase64String(filter.Cursor))) ?? throw new FormatException();
                 if (cursor.FilterHash != filterHash) throw new FormatException();
             }
             catch (Exception exception) when (exception is FormatException or JsonException)
@@ -51,7 +49,7 @@ public sealed class SqlDocumentQueries(FiscalDbContext db, IFingerprints fingerp
         var items = rows.Take(filter.PageSize).Select(x => new DocumentItem(x.Id, x.Type, x.IssuerMasked,
             x.IssuedAt, x.State, x.Status, x.ContentRevision, ETags.Format(x.RowVersion))).ToList();
         var last = items.LastOrDefault();
-        var next = more && last is not null ? Convert.ToBase64String(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(new Cursor(last.IssuedAt, last.Id, filterHash)))) : null;
+        var next = more && last is not null ? Convert.ToBase64String(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(new DocumentCursor(last.IssuedAt, last.Id, filterHash)))) : null;
         return new Page<DocumentItem>(items, next);
     }
 

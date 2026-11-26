@@ -1,57 +1,8 @@
 using System.Text.Json;
 using FiscalDocuments.Domain;
 using MediatR;
-using Microsoft.Extensions.DependencyInjection;
 
 namespace FiscalDocuments.Application;
-
-public interface IValidatedRequest { void Validate(); }
-
-public sealed record ReceiveDocument(byte[] Xml, string CorrelationId) : IRequest<Acceptance>, IValidatedRequest
-{
-    public void Validate() => RequestValidation.Xml(Xml);
-}
-public sealed record ReplaceDocument(Guid Id, byte[] Xml, string? IfMatch, string? IdempotencyKey,
-    string Subject, string CorrelationId) : IRequest<MutationResult>, IValidatedRequest
-{
-    public void Validate() { RequestValidation.Xml(Xml); _ = ETags.Parse(IfMatch); RequestValidation.Key(IdempotencyKey); }
-}
-public sealed record DeleteDocument(Guid Id, string? IfMatch, string? IdempotencyKey, string Subject)
-    : IRequest<MutationResult>, IValidatedRequest
-{
-    public void Validate() { _ = ETags.Parse(IfMatch); RequestValidation.Key(IdempotencyKey); }
-}
-public sealed record ReprocessDocument(Guid Id, string? IdempotencyKey, string Subject, string CorrelationId)
-    : IRequest<MutationResult>, IValidatedRequest
-{
-    public void Validate() => RequestValidation.Key(IdempotencyKey);
-}
-public sealed record ListDocuments(DocumentFilter Filter) : IRequest<Page<DocumentItem>>;
-public sealed record GetDocument(Guid Id) : IRequest<DocumentDetails?>;
-
-public static class RequestValidation
-{
-    public const int MaxFileBytes = 2 * 1024 * 1024;
-    public static void Xml(byte[] bytes)
-    {
-        if (bytes.Length == 0) throw new AppException("empty_xml");
-        if (bytes.Length > MaxFileBytes) throw new AppException("file_too_large", 413);
-    }
-    public static void Key(string? key)
-    {
-        if (string.IsNullOrWhiteSpace(key) || key.Length is < 8 or > 128 || key.Any(c => c < 33 || c > 126))
-            throw new AppException("invalid_idempotency_key");
-    }
-}
-
-public sealed class ValidationBehavior<TRequest, TResponse> : IPipelineBehavior<TRequest, TResponse> where TRequest : notnull
-{
-    public Task<TResponse> Handle(TRequest request, RequestHandlerDelegate<TResponse> next, CancellationToken cancellationToken)
-    {
-        if (request is IValidatedRequest validated) validated.Validate();
-        return next();
-    }
-}
 
 public sealed class DocumentHandlers(IWriteStore store, IXmlDocuments xml, IFingerprints fingerprints, TimeProvider clock,
     IDocumentQueries queries) : IRequestHandler<ReceiveDocument, Acceptance>, IRequestHandler<ReplaceDocument, MutationResult>,
@@ -178,19 +129,4 @@ public sealed class DocumentHandlers(IWriteStore store, IXmlDocuments xml, IFing
     }
     public Task<Page<DocumentItem>> Handle(ListDocuments request, CancellationToken ct) => queries.ListAsync(request.Filter, ct);
     public Task<DocumentDetails?> Handle(GetDocument request, CancellationToken ct) => queries.DetailsAsync(request.Id, ct);
-}
-
-public static class ApplicationServices
-{
-    public static IServiceCollection AddApplication(this IServiceCollection services)
-    {
-        services.AddSingleton(TimeProvider.System);
-        services.AddMediatR(configuration =>
-        {
-            configuration.RegisterServicesFromAssemblyContaining<ReceiveDocument>();
-            configuration.AddOpenBehavior(typeof(ValidationBehavior<,>));
-        });
-        services.AddScoped<EventProcessor>();
-        return services;
-    }
 }

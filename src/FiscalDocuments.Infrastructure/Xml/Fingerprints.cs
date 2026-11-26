@@ -5,10 +5,6 @@ using Microsoft.Extensions.Options;
 
 namespace FiscalDocuments.Infrastructure.Xml;
 
-public sealed class PrivacyOptions
-{
-    public string HmacKey { get; set; } = "";
-}
 public sealed class Fingerprints : IFingerprints
 {
     private readonly byte[] key;
