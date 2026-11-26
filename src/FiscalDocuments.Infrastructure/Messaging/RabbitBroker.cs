@@ -6,6 +6,10 @@ using RabbitMQ.Client;
 
 namespace FiscalDocuments.Infrastructure.Messaging;
 
+/// <summary>
+/// Classe auxiliar de comunicação com o RabbitMQ.
+/// </summary>
+/// <param name="options"></param>
 public sealed class RabbitBroker(IOptions<RabbitOptions> options) : IAsyncDisposable
 {
     private readonly string topologyPrefix = ValidatePrefix(options.Value.TopologyPrefix);

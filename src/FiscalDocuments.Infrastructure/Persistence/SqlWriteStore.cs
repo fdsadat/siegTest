@@ -5,8 +5,23 @@ using Microsoft.EntityFrameworkCore;
 
 namespace FiscalDocuments.Infrastructure.Persistence;
 
+/// <summary>
+/// Centraliza o acesso de escrita ao SQL Server.
+/// </summary>
+/// <param name="db"></param>
 public sealed class SqlWriteStore(FiscalDbContext db) : IWriteStore
 {
+    /// <summary>
+    /// executa uma operação dentro de uma transação, salvando suas alterações em conjunto.
+    /// Confirma a transação quando tudo funciona e permite repetir a execução diante de falhas temporárias reconhecidas pelo EF Core.
+    /// Isso evita gravações parciais, como salvar um documento sem registrar seu evento no outbox.
+    /// </summary>
+    /// <typeparam name="T"></typeparam>
+    /// <param name="action"></param>
+    /// <param name="ct"></param>
+    /// <returns></returns>
+    /// <exception cref="AppException"></exception>
+    /// <exception cref="DuplicateWriteException"></exception>
     public async Task<T> TransactionAsync<T>(Func<Task<T>> action, CancellationToken ct)
     {
         var strategy = db.Database.CreateExecutionStrategy();
@@ -34,7 +49,12 @@ public sealed class SqlWriteStore(FiscalDbContext db) : IWriteStore
         });
     }
 
-    // Alterações de documentos, commits dos consumidores e reprocessamentos usam um bloqueio de curta duração na transaction. O HTTP usa rowversion.
+    /// <summary>
+    /// Alterações de documentos, commits dos consumidores e reprocessamentos usam um bloqueio de curta duração na transaction. O HTTP usa rowversion.
+    /// </summary>
+    /// <param name="resource"></param>
+    /// <param name="ct"></param>
+    /// <returns></returns>
     public async Task LockAsync(string resource, CancellationToken ct)
     {
         await db.Database.ExecuteSqlInterpolatedAsync($"""
@@ -65,6 +85,12 @@ public sealed class SqlWriteStore(FiscalDbContext db) : IWriteStore
         return db.Receipts.AsNoTracking().SingleOrDefaultAsync(r => r.DocumentId == documentId && r.ContentHmac == contentHmac, ct);
     }
 
+    /// <summary>
+    /// Checa operações idempontentes.
+    /// </summary>
+    /// <param name="scope"></param>
+    /// <param name="ct"></param>
+    /// <returns></returns>
     public Task<IdempotentOperation?> OperationAsync(string scope, CancellationToken ct)
     {
         return db.Operations.SingleOrDefaultAsync(o => o.Scope == scope, ct);

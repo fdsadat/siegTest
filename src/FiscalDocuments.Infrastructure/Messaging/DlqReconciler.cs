@@ -7,7 +7,13 @@ namespace FiscalDocuments.Infrastructure.Messaging;
 
 public static class DlqReconciler
 {
-    // Comando explícito do operador, sem coleta contínua. O commit SQL ocorre antes do ACK.
+    /// <summary>
+    /// Consulta as filas de falhas(DLQ) e atualiza o banco com segurança. Só confirma a retirada da mensagem após concluir a operação no SQL.
+    /// </summary>
+    /// <param name="services"></param>
+    /// <param name="ct"></param>
+    /// <returns></returns>
+    /// <exception cref="InvalidOperationException"></exception>
     public static async Task<int> ReconcileAsync(IServiceProvider services, CancellationToken ct = default)
     {
         var broker = services.GetRequiredService<RabbitBroker>();
@@ -25,8 +31,7 @@ public static class DlqReconciler
 
                 try
                 {
-                    var message = JsonSerializer.Deserialize<IntegrationEvent>(delivery.Body.Span, JsonDefaults.Options)
-                        ?? throw new PermanentProcessingException("invalid_event");
+                    var message = JsonSerializer.Deserialize<IntegrationEvent>(delivery.Body.Span, JsonDefaults.Options) ?? throw new PermanentProcessingException("invalid_event");
                     EventProcessor.Validate(message);
                     await using var scope = services.CreateAsyncScope();
                     await scope.ServiceProvider.GetRequiredService<EventProcessor>().FailAsync(message, "reconciled_from_dlq", ct);
