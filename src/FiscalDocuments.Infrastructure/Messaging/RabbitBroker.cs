@@ -24,7 +24,10 @@ public sealed class RabbitBroker(IOptions<RabbitOptions> options) : IAsyncDispos
     {
         if (string.IsNullOrWhiteSpace(prefix) || prefix.Length > 100 ||
             prefix.Any(c => !char.IsAsciiLetterOrDigit(c) && c is not '.' and not '_' and not '-'))
+        {
             throw new InvalidOperationException("Rabbit:TopologyPrefix requires 1 to 100 ASCII letters, digits, dots, underscores or hyphens.");
+        }
+
         return prefix;
     }
 
@@ -33,11 +36,22 @@ public sealed class RabbitBroker(IOptions<RabbitOptions> options) : IAsyncDispos
         await connectionGate.WaitAsync(ct);
         try
         {
-            if (connection is { IsOpen: true }) return connection;
-            if (connection is not null) await connection.DisposeAsync();
+            if (connection is { IsOpen: true })
+            {
+                return connection;
+            }
+
+            if (connection is not null)
+            {
+                await connection.DisposeAsync();
+            }
+
             var settings = options.Value;
             if (string.IsNullOrWhiteSpace(settings.Username) || string.IsNullOrWhiteSpace(settings.Password))
+            {
                 throw new InvalidOperationException("Rabbit credentials are required.");
+            }
+
             connection = await new ConnectionFactory
             {
                 HostName = settings.Host, Port = settings.Port, UserName = settings.Username, Password = settings.Password,
@@ -68,14 +82,22 @@ public sealed class RabbitBroker(IOptions<RabbitOptions> options) : IAsyncDispos
         {
             if (publisher is not { IsOpen: true })
             {
-                if (publisher is not null) await publisher.DisposeAsync();
+                if (publisher is not null)
+                {
+                    await publisher.DisposeAsync();
+                }
+
                 var current = await ConnectionAsync(timeout.Token);
                 publisher = await current.CreateChannelAsync(new CreateChannelOptions(
                     publisherConfirmationsEnabled: true, publisherConfirmationTrackingEnabled: true), timeout.Token);
                 await DeclareAsync(publisher, timeout.Token);
             }
             var headers = new Dictionary<string, object?> { ["x-retry-attempt"] = attempt };
-            if (errorCode is not null) headers["x-error-code"] = errorCode;
+            if (errorCode is not null)
+            {
+                headers["x-error-code"] = errorCode;
+            }
+
             var properties = new BasicProperties
             {
                 Persistent = true, ContentType = "application/json", Headers = headers
@@ -85,7 +107,11 @@ public sealed class RabbitBroker(IOptions<RabbitOptions> options) : IAsyncDispos
         }
         catch
         {
-            if (publisher is not null) await publisher.DisposeAsync();
+            if (publisher is not null)
+            {
+                await publisher.DisposeAsync();
+            }
+
             publisher = null;
             throw;
         }
@@ -130,8 +156,16 @@ public sealed class RabbitBroker(IOptions<RabbitOptions> options) : IAsyncDispos
 
     public async ValueTask DisposeAsync()
     {
-        if (publisher is not null) await publisher.DisposeAsync();
-        if (connection is not null) await connection.DisposeAsync();
+        if (publisher is not null)
+        {
+            await publisher.DisposeAsync();
+        }
+
+        if (connection is not null)
+        {
+            await connection.DisposeAsync();
+        }
+
         connectionGate.Dispose();
         publishGate.Dispose();
     }

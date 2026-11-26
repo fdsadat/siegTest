@@ -53,8 +53,14 @@ public sealed class XmlTests
         var document = XDocument.Parse(Encoding.UTF8.GetString(Sample(name)));
         foreach (var attribute in document.Descendants().Attributes("versao").ToList())
         {
-            if (version is null) attribute.Remove();
-            else attribute.Value = version;
+            if (version is null)
+            {
+                attribute.Remove();
+            }
+            else
+            {
+                attribute.Value = version;
+            }
         }
         var parsed = parser.ValidateAndSanitize(Encoding.UTF8.GetBytes(document.ToString(SaveOptions.DisableFormatting)));
         Assert.Multiple(() =>
@@ -73,8 +79,15 @@ public sealed class XmlTests
         var original = parser.ValidateAndSanitize(Sample(name));
         var document = XDocument.Parse(Encoding.UTF8.GetString(Sample(name)));
         var field = document.Descendants().Single(e => e.Name.LocalName == "mod");
-        if (model is null) field.Remove();
-        else field.Value = model;
+        if (model is null)
+        {
+            field.Remove();
+        }
+        else
+        {
+            field.Value = model;
+        }
+
         var parsed = parser.ValidateAndSanitize(Encoding.UTF8.GetBytes(document.ToString(SaveOptions.DisableFormatting)));
         Assert.Multiple(() =>
         {

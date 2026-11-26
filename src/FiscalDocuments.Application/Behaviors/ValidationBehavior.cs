@@ -6,7 +6,11 @@ public sealed class ValidationBehavior<TRequest, TResponse> : IPipelineBehavior<
 {
     public Task<TResponse> Handle(TRequest request, RequestHandlerDelegate<TResponse> next, CancellationToken cancellationToken)
     {
-        if (request is IValidatedRequest validated) validated.Validate();
+        if (request is IValidatedRequest validated)
+        {
+            validated.Validate();
+        }
+
         return next();
     }
 }

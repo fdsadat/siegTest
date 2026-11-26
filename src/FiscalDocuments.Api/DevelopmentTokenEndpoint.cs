@@ -14,7 +14,10 @@ public static class DevelopmentTokenEndpoint
     /// <exception cref="InvalidOperationException"></exception>
     public static void MapDevelopmentTokenEndpoint(this WebApplication app)
     {
-        if (!app.Environment.IsDevelopment() || !string.IsNullOrWhiteSpace(app.Configuration["Jwt:Authority"])) return;
+        if (!app.Environment.IsDevelopment() || !string.IsNullOrWhiteSpace(app.Configuration["Jwt:Authority"]))
+        {
+            return;
+        }
 
         app.MapPost("/api/v1/auth/token", (IConfiguration configuration, TimeProvider clock) =>
         {
@@ -22,7 +25,9 @@ public static class DevelopmentTokenEndpoint
             var now = clock.GetUtcNow();
             var signingKey = configuration["Jwt:SigningKey"];
             if (string.IsNullOrWhiteSpace(signingKey) || Encoding.UTF8.GetByteCount(signingKey) < 32)
+            {
                 throw new InvalidOperationException("Jwt:SigningKey must contain at least 32 bytes.");
+            }
 
             var token = new JwtSecurityToken(
                 issuer: configuration["Jwt:Issuer"] ?? "fiscal-documents",

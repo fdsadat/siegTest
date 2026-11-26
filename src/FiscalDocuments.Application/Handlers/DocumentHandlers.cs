@@ -24,9 +24,16 @@ public sealed class DocumentHandlers(IWriteStore store, IXmlDocuments xml, IFing
                         await store.LockAsync($"document:{existing.Id}", ct);
                         // Relê o documento após obter o bloqueio de coordenação com exclusão, substituição e reprocessamento.
                         existing = (await store.DocumentAsync(existing.Id, ct))!;
-                        if (existing.IsDeleted) throw new AppException("document_deleted", 409);
+                        if (existing.IsDeleted)
+                        {
+                            throw new AppException("document_deleted", 409);
+                        }
+
                         if (await store.ReceiptAsync(existing.Id, parsed.ContentHmac, ct) is null)
+                        {
                             throw new AppException("document_exists_use_put", 409);
+                        }
+
                         var current = await store.ProcessingAsync(existing.Id, ct);
                         return new Acceptance(existing.Id, "AlreadyReceived", existing.ContentRevision,
                             current.Status, existing.ContentHmac == parsed.ContentHmac);
@@ -54,11 +61,20 @@ public sealed class DocumentHandlers(IWriteStore store, IXmlDocuments xml, IFing
                 var document = await ActiveDocument(request.Id, ct);
                 CheckETag(document, request.IfMatch);
                 if (document.Type != parsed.Type || document.IdentityHmac != parsed.IdentityHmac)
+                {
                     throw new AppException("fiscal_identity_mismatch", 409);
+                }
+
                 if (document.ContentHmac == parsed.ContentHmac)
+                {
                     return new MutationResult(200, new { document.Id, document.ContentRevision, Disposition = "Unchanged" }, ETags.Format(document.RowVersion));
+                }
+
                 if (await store.ReceiptAsync(document.Id, parsed.ContentHmac, ct) is not null)
+                {
                     throw new AppException("previous_content_already_received", 409);
+                }
+
                 var processing = await store.ProcessingAsync(document.Id, ct);
                 document.Replace(parsed, processing, clock.GetUtcNow());
                 await store.ClearSummaryAsync(document.Id, ct);
@@ -73,7 +89,11 @@ public sealed class DocumentHandlers(IWriteStore store, IXmlDocuments xml, IFing
         Idempotent("delete", request.Id, request.Subject, request.IdempotencyKey!, fingerprints.Hash(request.IfMatch!), async () =>
         {
             var document = await store.DocumentAsync(request.Id, ct);
-            if (document is null || document.IsDeleted) return new MutationResult(204);
+            if (document is null || document.IsDeleted)
+            {
+                return new MutationResult(204);
+            }
+
             CheckETag(document, request.IfMatch);
             document.Delete(clock.GetUtcNow());
             return new MutationResult(204);
@@ -84,7 +104,11 @@ public sealed class DocumentHandlers(IWriteStore store, IXmlDocuments xml, IFing
         {
             var document = await ActiveDocument(request.Id, ct);
             var processing = await store.ProcessingAsync(document.Id, ct);
-            if (processing.Status != ProcessingStatus.Failed) throw new AppException("only_failed_processing_can_replay", 409);
+            if (processing.Status != ProcessingStatus.Failed)
+            {
+                throw new AppException("only_failed_processing_can_replay", 409);
+            }
+
             processing.Restart(document.ContentRevision, clock.GetUtcNow());
             await store.ClearSummaryAsync(document.Id, ct);
             store.Add(IntegrationEvent.Create(IntegrationEvent.Received, document, processing, clock.GetUtcNow(), request.CorrelationId));
@@ -100,7 +124,11 @@ public sealed class DocumentHandlers(IWriteStore store, IXmlDocuments xml, IFing
         var now = clock.GetUtcNow();
         if (previous is not null && previous.ExpiresAt > now)
         {
-            if (previous.Fingerprint != fingerprint) throw new AppException("idempotency_key_reused", 409);
+            if (previous.Fingerprint != fingerprint)
+            {
+                throw new AppException("idempotency_key_reused", 409);
+            }
+
             return new MutationResult(previous.StatusCode,
                 previous.ResponseJson is null ? null : JsonSerializer.Deserialize<JsonElement>(previous.ResponseJson), previous.ETag, previous.Location);
         }
@@ -113,19 +141,30 @@ public sealed class DocumentHandlers(IWriteStore store, IXmlDocuments xml, IFing
         operation.ETag = result.ETag;
         operation.Location = result.Location;
         operation.ExpiresAt = now.AddHours(24);
-        if (previous is null) store.Add(operation);
+        if (previous is null)
+        {
+            store.Add(operation);
+        }
+
         return result;
     }, ct);
 
     private async Task<FiscalDocument> ActiveDocument(Guid id, CancellationToken ct)
     {
         var document = await store.DocumentAsync(id, ct);
-        if (document is null || document.IsDeleted) throw new AppException("document_not_found", 404);
+        if (document is null || document.IsDeleted)
+        {
+            throw new AppException("document_not_found", 404);
+        }
+
         return document;
     }
     private static void CheckETag(FiscalDocument document, string? etag)
     {
-        if (!document.RowVersion.AsSpan().SequenceEqual(ETags.Parse(etag))) throw new AppException("etag_mismatch", 412);
+        if (!document.RowVersion.AsSpan().SequenceEqual(ETags.Parse(etag)))
+        {
+            throw new AppException("etag_mismatch", 412);
+        }
     }
     public Task<Page<DocumentItem>> Handle(ListDocuments request, CancellationToken ct) => queries.ListAsync(request.Filter, ct);
     public Task<DocumentDetails?> Handle(GetDocument request, CancellationToken ct) => queries.DetailsAsync(request.Id, ct);

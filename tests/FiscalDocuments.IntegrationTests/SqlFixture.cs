@@ -27,7 +27,10 @@ public abstract class SqlFixture
     {
         var external = Environment.GetEnvironmentVariable("FISCAL_TEST_SQL_CONNECTION");
         if (string.IsNullOrWhiteSpace(external))
+        {
             external = @"Server=(localdb)\MSSQLLocalDB;Integrated Security=true;TrustServerCertificate=true";
+        }
+
         try
         {
             await using var check = new SqlConnection(new SqlConnectionStringBuilder(external)

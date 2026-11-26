@@ -18,7 +18,11 @@ public static class DlqReconciler
             for (var i = 0; i < 100; i++)
             {
                 var delivery = await channel.BasicGetAsync(broker.Queue(eventType) + ".dead", false, ct);
-                if (delivery is null) break;
+                if (delivery is null)
+                {
+                    break;
+                }
+
                 try
                 {
                     var message = JsonSerializer.Deserialize<IntegrationEvent>(delivery.Body.Span, JsonDefaults.Options)

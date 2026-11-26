@@ -57,7 +57,10 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme).AddJw
     {
         var key = builder.Configuration["Jwt:SigningKey"];
         if (string.IsNullOrWhiteSpace(key) || Encoding.UTF8.GetByteCount(key) < 32)
+        {
             throw new InvalidOperationException("Jwt:SigningKey must contain at least 32 bytes, or configure Jwt:Authority.");
+        }
+
         options.TokenValidationParameters = new TokenValidationParameters
         {
             ValidateIssuer = true, ValidIssuer = issuer, ValidateAudience = true, ValidAudience = audience,
@@ -70,8 +73,10 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme).AddJw
 builder.Services.AddAuthorization(options =>
 {
     foreach (var permission in new[] { "documents.read", "documents.write", "operations.replay" })
+    {
         options.AddPolicy(permission, policy => policy.RequireAuthenticatedUser().RequireClaim("sub")
             .RequireAssertion(context => context.User.FindAll("scope").Any(claim => claim.Value.Split(' ').Contains(permission, StringComparer.Ordinal))));
+    }
 });
 // Rate Limiting** Limita a quantidade de requisições.
 builder.Services.AddRateLimiter(options =>
@@ -130,12 +135,19 @@ app.MapGet("/health/ready", async (FiscalDbContext db, CancellationToken ct) =>
     try
     {
         if (!await db.Database.CanConnectAsync(ct) || (await db.Database.GetPendingMigrationsAsync(ct)).Any())
+        {
             return Results.StatusCode(503);
+        }
+
         return Results.Ok(new { status = "ready" });
     }
     catch { return Results.StatusCode(503); }
 });
-if (builder.Configuration.GetValue<bool>("Database:ApplyMigrations")) await app.Services.MigrateDatabaseAsync();
+if (builder.Configuration.GetValue<bool>("Database:ApplyMigrations"))
+{
+    await app.Services.MigrateDatabaseAsync();
+}
+
 await app.RunAsync();
 
 public partial class Program;

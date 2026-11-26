@@ -9,8 +9,16 @@ public static class DatabaseProvisioning
     public static async Task ProvisionApplicationUserAsync(IServiceProvider services, IConfiguration configuration)
     {
         var password = configuration["Database:ApplicationPassword"];
-        if (string.IsNullOrWhiteSpace(password)) return;
-        if (password.Length < 16 || password.Length > 128) throw new InvalidOperationException("Database application password requires 16 to 128 characters.");
+        if (string.IsNullOrWhiteSpace(password))
+        {
+            return;
+        }
+
+        if (password.Length < 16 || password.Length > 128)
+        {
+            throw new InvalidOperationException("Database application password requires 16 to 128 characters.");
+        }
+
         await using var scope = services.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<FiscalDbContext>();
         // Identificador fixo e escape do segredo parametrizado no SQL; a senha não aparece no texto do comando.

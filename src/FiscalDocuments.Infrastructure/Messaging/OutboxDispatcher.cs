@@ -15,7 +15,10 @@ public sealed class OutboxDispatcher(IServiceScopeFactory scopes, RabbitBroker b
         {
             try
             {
-                if (!await DispatchOneAsync(stoppingToken)) await Task.Delay(1000, stoppingToken);
+                if (!await DispatchOneAsync(stoppingToken))
+                {
+                    await Task.Delay(1000, stoppingToken);
+                }
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { break; }
             catch (Exception)
@@ -49,7 +52,11 @@ public sealed class OutboxDispatcher(IServiceScopeFactory scopes, RabbitBroker b
             END
             """, ct);
         var message = await db.Outbox.AsNoTracking().SingleOrDefaultAsync(m => m.LeaseId == lease, ct);
-        if (message is null) return false;
+        if (message is null)
+        {
+            return false;
+        }
+
         try
         {
             await broker.PublishAsync(message.Payload, message.EventType, broker.EventsExchange, 0, null, ct);

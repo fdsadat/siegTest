@@ -24,7 +24,10 @@ public sealed class RabbitConsumers(IServiceScopeFactory scopes, RabbitBroker br
                 var consumer = new AsyncEventingBasicConsumer(channel);
                 consumer.ReceivedAsync += async (_, delivery) => await ConsumeAsync(eventType, channel, delivery, ct);
                 await channel.BasicConsumeAsync(broker.Queue(eventType), false, consumer, ct);
-                while (channel.IsOpen && !ct.IsCancellationRequested) await Task.Delay(1000, ct);
+                while (channel.IsOpen && !ct.IsCancellationRequested)
+                {
+                    await Task.Delay(1000, ct);
+                }
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested) { break; }
             catch (Exception)
@@ -47,7 +50,11 @@ public sealed class RabbitConsumers(IServiceScopeFactory scopes, RabbitBroker br
                 message = JsonSerializer.Deserialize<IntegrationEvent>(payload, JsonDefaults.Options)
                     ?? throw new PermanentProcessingException("invalid_event");
                 EventProcessor.Validate(message);
-                if (message.EventType != eventType) throw new PermanentProcessingException("misrouted_event");
+                if (message.EventType != eventType)
+                {
+                    throw new PermanentProcessingException("misrouted_event");
+                }
+
                 await using var scope = scopes.CreateAsyncScope();
                 await scope.ServiceProvider.GetRequiredService<EventProcessor>().ProcessAsync(message, ct);
             }
@@ -81,14 +88,22 @@ public sealed class RabbitConsumers(IServiceScopeFactory scopes, RabbitBroker br
         catch (Exception)
         {
             logger.LogWarning("Delivery handoff/commit unconfirmed; returning message to broker");
-            if (channel.IsOpen) await channel.BasicNackAsync(delivery.DeliveryTag, false, true, ct);
+            if (channel.IsOpen)
+            {
+                await channel.BasicNackAsync(delivery.DeliveryTag, false, true, ct);
+            }
+
             await Task.Delay(1000, ct);
         }
     }
 
     public static int ReadAttempt(IDictionary<string, object?>? headers)
     {
-        if (headers is null || !headers.TryGetValue("x-retry-attempt", out var value)) return 0;
+        if (headers is null || !headers.TryGetValue("x-retry-attempt", out var value))
+        {
+            return 0;
+        }
+
         return value switch { int number => Math.Max(0, number), long number => (int)Math.Clamp(number, 0, int.MaxValue), _ => 0 };
     }
 }

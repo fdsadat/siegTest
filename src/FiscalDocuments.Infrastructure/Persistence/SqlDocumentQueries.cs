@@ -10,31 +10,77 @@ public sealed class SqlDocumentQueries(FiscalDbContext db, IFingerprints fingerp
 {
     public async Task<Page<DocumentItem>> ListAsync(DocumentFilter filter, CancellationToken ct)
     {
-        if (filter.PageSize is < 1 or > 100) throw new AppException("invalid_page_size");
-        if (filter.From.HasValue && filter.To.HasValue && filter.From >= filter.To) throw new AppException("invalid_date_range");
+        if (filter.PageSize is < 1 or > 100)
+        {
+            throw new AppException("invalid_page_size");
+        }
+
+        if (filter.From.HasValue && filter.To.HasValue && filter.From >= filter.To)
+        {
+            throw new AppException("invalid_date_range");
+        }
+
         if (filter.Type.HasValue && !Enum.IsDefined(filter.Type.Value) || filter.Status.HasValue && !Enum.IsDefined(filter.Status.Value))
+        {
             throw new AppException("invalid_filter");
-        if (filter.State is { Length: > 2 }) throw new AppException("invalid_state");
+        }
+
+        if (filter.State is { Length: > 2 })
+        {
+            throw new AppException("invalid_state");
+        }
+
         var issuerHmac = filter.IssuerCnpj is null ? null : fingerprints.TaxId(filter.IssuerCnpj);
         var filterHash = fingerprints.Hash(JsonSerializer.Serialize(new { filter.From, filter.To, issuerHmac, filter.State, filter.Type, filter.Status }));
         var query = from document in db.Documents.AsNoTracking()
                     join processing in db.Processing.AsNoTracking() on document.Id equals processing.DocumentId
                     where !document.IsDeleted
                     select new { Document = document, Processing = processing };
-        if (filter.From.HasValue) query = query.Where(x => x.Document.IssuedAt >= filter.From);
-        if (filter.To.HasValue) query = query.Where(x => x.Document.IssuedAt < filter.To);
-        if (issuerHmac is not null) query = query.Where(x => x.Document.IssuerHmac == issuerHmac);
-        if (filter.State is not null) query = query.Where(x => x.Document.State == filter.State);
-        if (filter.Type.HasValue) query = query.Where(x => x.Document.Type == filter.Type);
-        if (filter.Status.HasValue) query = query.Where(x => x.Processing.Status == filter.Status);
+        if (filter.From.HasValue)
+        {
+            query = query.Where(x => x.Document.IssuedAt >= filter.From);
+        }
+
+        if (filter.To.HasValue)
+        {
+            query = query.Where(x => x.Document.IssuedAt < filter.To);
+        }
+
+        if (issuerHmac is not null)
+        {
+            query = query.Where(x => x.Document.IssuerHmac == issuerHmac);
+        }
+
+        if (filter.State is not null)
+        {
+            query = query.Where(x => x.Document.State == filter.State);
+        }
+
+        if (filter.Type.HasValue)
+        {
+            query = query.Where(x => x.Document.Type == filter.Type);
+        }
+
+        if (filter.Status.HasValue)
+        {
+            query = query.Where(x => x.Processing.Status == filter.Status);
+        }
+
         if (filter.Cursor is not null)
         {
             DocumentCursor cursor;
             try
             {
-                if (filter.Cursor.Length > 2048) throw new FormatException();
+                if (filter.Cursor.Length > 2048)
+                {
+                    throw new FormatException();
+                }
+
                 cursor = JsonSerializer.Deserialize<DocumentCursor>(Encoding.UTF8.GetString(Convert.FromBase64String(filter.Cursor))) ?? throw new FormatException();
-                if (cursor.FilterHash != filterHash) throw new FormatException();
+                if (cursor.FilterHash != filterHash)
+                {
+                    throw new FormatException();
+                }
             }
             catch (Exception exception) when (exception is FormatException or JsonException)
             { throw new AppException("invalid_cursor"); }
@@ -62,7 +108,11 @@ public sealed class SqlDocumentQueries(FiscalDbContext db, IFingerprints fingerp
                          from summary in summaries.DefaultIfEmpty()
                          where document.Id == id && !document.IsDeleted
                          select new { Document = document, Processing = processing, Summary = summary }).SingleOrDefaultAsync(ct);
-        if (row is null) return null;
+        if (row is null)
+        {
+            return null;
+        }
+
         var d = row.Document;
         var p = row.Processing;
         return new DocumentDetails(new DocumentItem(d.Id, d.Type, d.IssuerMasked, d.IssuedAt, d.State, p.Status,

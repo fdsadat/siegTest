@@ -140,7 +140,11 @@ public sealed class DocumentsController(ISender sender) : ControllerBase
     public async Task<IActionResult> Replace(Guid id, CancellationToken ct)
     {
         var (bytes, size) = await ReadBoundedAsync(Request.Body, ct);
-        if (size > RequestValidation.MaxFileBytes) throw new AppException("file_too_large", 413);
+        if (size > RequestValidation.MaxFileBytes)
+        {
+            throw new AppException("file_too_large", 413);
+        }
+
         return Mutation(await sender.Send(
             new ReplaceDocument(
                 id, 
@@ -174,8 +178,16 @@ public sealed class DocumentsController(ISender sender) : ControllerBase
 
     private IActionResult Mutation(MutationResult result)
     {
-        if (result.ETag is not null) Response.Headers.ETag = result.ETag;
-        if (result.Location is not null) Response.Headers.Location = result.Location;
+        if (result.ETag is not null)
+        {
+            Response.Headers.ETag = result.ETag;
+        }
+
+        if (result.Location is not null)
+        {
+            Response.Headers.Location = result.Location;
+        }
+
         if (result.Body is null)
         {
             return StatusCode(result.StatusCode);
@@ -197,8 +209,15 @@ public sealed class DocumentsController(ISender sender) : ControllerBase
             while ((read = await stream.ReadAsync(buffer.AsMemory(), ct)) > 0)
             {
                 size += read;
-                if (size <= RequestValidation.MaxFileBytes) output.Write(buffer, 0, read);
-                if (size > RequestValidation.MaxRequestBytes) throw new AppException("request_too_large", 413);
+                if (size <= RequestValidation.MaxFileBytes)
+                {
+                    output.Write(buffer, 0, read);
+                }
+
+                if (size > RequestValidation.MaxRequestBytes)
+                {
+                    throw new AppException("request_too_large", 413);
+                }
             }
             return (size > RequestValidation.MaxFileBytes ? [] : output.ToArray(), size);
         }

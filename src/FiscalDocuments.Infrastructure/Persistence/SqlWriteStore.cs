@@ -58,7 +58,10 @@ public sealed class SqlWriteStore(FiscalDbContext db) : IWriteStore
     public async Task ClearSummaryAsync(Guid documentId, CancellationToken ct)
     {
         var summary = await db.Summaries.SingleOrDefaultAsync(s => s.DocumentId == documentId, ct);
-        if (summary is not null) db.Summaries.Remove(summary);
+        if (summary is not null)
+        {
+            db.Summaries.Remove(summary);
+        }
     }
     public void Add<T>(T entity) where T : class => db.Add(entity);
 

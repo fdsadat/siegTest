@@ -30,9 +30,20 @@ public sealed class FiscalDocument
     {
         EnsureActive();
         if (Type != xml.Type || IdentityHmac != xml.IdentityHmac)
+        {
             throw new DomainException("fiscal_identity_mismatch");
-        if (!processing.IsTerminal) throw new DomainException("processing_in_progress");
-        if (processing.DocumentId != Id) throw new DomainException("processing_mismatch");
+        }
+
+        if (!processing.IsTerminal)
+        {
+            throw new DomainException("processing_in_progress");
+        }
+
+        if (processing.DocumentId != Id)
+        {
+            throw new DomainException("processing_mismatch");
+        }
+
         ContentRevision = checked(ContentRevision + 1);
         Apply(xml, now);
         processing.Restart(ContentRevision, now);
@@ -60,6 +71,9 @@ public sealed class FiscalDocument
 
     private void EnsureActive()
     {
-        if (IsDeleted) throw new DomainException("document_deleted");
+        if (IsDeleted)
+        {
+            throw new DomainException("document_deleted");
+        }
     }
 }

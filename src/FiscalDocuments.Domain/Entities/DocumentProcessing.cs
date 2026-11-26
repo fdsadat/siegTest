@@ -35,7 +35,11 @@ public sealed class DocumentProcessing
 
     public void Extract(decimal totalAmount, string competence, DateTimeOffset now)
     {
-        if (Status != ProcessingStatus.PendingExtraction) throw new DomainException("invalid_processing_transition");
+        if (Status != ProcessingStatus.PendingExtraction)
+        {
+            throw new DomainException("invalid_processing_transition");
+        }
+
         TotalAmount = totalAmount;
         Competence = competence;
         Status = ProcessingStatus.PendingSummary;
@@ -44,14 +48,22 @@ public sealed class DocumentProcessing
 
     public void Complete(DateTimeOffset now)
     {
-        if (Status != ProcessingStatus.PendingSummary) throw new DomainException("invalid_processing_transition");
+        if (Status != ProcessingStatus.PendingSummary)
+        {
+            throw new DomainException("invalid_processing_transition");
+        }
+
         Status = ProcessingStatus.Completed;
         UpdatedAt = now;
     }
 
     public void Fail(string errorCode, DateTimeOffset now)
     {
-        if (Status == ProcessingStatus.Completed) return;
+        if (Status == ProcessingStatus.Completed)
+        {
+            return;
+        }
+
         Status = ProcessingStatus.Failed;
         ErrorCode = errorCode;
         UpdatedAt = now;

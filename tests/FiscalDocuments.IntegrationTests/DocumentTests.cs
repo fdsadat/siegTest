@@ -66,7 +66,10 @@ public sealed class DocumentTests : SqlFixture
     {
         using var multipart = new MultipartFormDataContent();
         foreach (var name in new[] { "nfe.xml", "cte.xml", "nfse.xml", "invalid.xml", "nfe.xml" })
+        {
             multipart.Add(new ByteArrayContent(Sample(name)), "files", name);
+        }
+
         using var response = await Client.PostAsync("/api/v1/documents", multipart);
         Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.OK));
         var body = (await response.Content.ReadFromJsonAsync<BatchResponse>(JsonDefaults.Options))!;
@@ -148,7 +151,11 @@ public sealed class DocumentTests : SqlFixture
         Assert.That(await replay.Content.ReadAsStringAsync(), Is.EqualTo(await responses[winner].Content.ReadAsStringAsync()));
         using var reused = await ReplaceAsync(accepted.DocumentId, before.Document.ETag, winner == 0 ? other : changed, winner == 0 ? "replace-0001" : "replace-0002");
         Assert.That(reused.StatusCode, Is.EqualTo(HttpStatusCode.Conflict));
-        foreach (var response in responses) response.Dispose();
+        foreach (var response in responses)
+        {
+            response.Dispose();
+        }
+
         var current = await DetailsAsync(accepted.DocumentId);
         Assert.That(current.Document.ContentRevision, Is.EqualTo(2));
         Assert.That(current.Summary, Is.Null);

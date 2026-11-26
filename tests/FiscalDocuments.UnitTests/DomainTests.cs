@@ -64,6 +64,8 @@ public sealed class DomainTests
         Assert.That(ETags.Parse(ETags.Format(version)), Is.EqualTo(version));
         Assert.That(() => ETags.Parse(null), Throws.TypeOf<AppException>().With.Property(nameof(AppException.StatusCode)).EqualTo(428));
         foreach (var invalid in new[] { "*", "W/\"AAAAAAAAAAA=\"", "unquoted", "\"AQ==\"" })
+        {
             Assert.That(() => ETags.Parse(invalid), Throws.TypeOf<AppException>());
+        }
     }
 }

@@ -138,7 +138,10 @@ public sealed class FiscalXmlDocuments(IFingerprints fingerprints) : IXmlDocumen
             using var stream = new MemoryStream(System.Text.Encoding.UTF8.GetBytes(xml));
             var root = Read(stream).Root;
             if (root?.Name != "FiscalDocument" || (string?)root.Attribute("schema") != "1")
+            {
                 throw new AppException("invalid_sanitized_xml");
+            }
+
             var amount = Amount(Text(root, "TotalAmount"));
             var date = DateTimeOffset.ParseExact(Text(root, "IssuedAt"), "O", CultureInfo.InvariantCulture);
             return new ExtractedData(amount, date.ToString("yyyy-MM", CultureInfo.InvariantCulture));
@@ -161,17 +164,29 @@ public sealed class FiscalXmlDocuments(IFingerprints fingerprints) : IXmlDocumen
         using var writer = document.CreateWriter();
         while (reader.Read())
         {
-            if (reader.Depth > 64) throw new AppException("xml_too_deep");
+            if (reader.Depth > 64)
+            {
+                throw new AppException("xml_too_deep");
+            }
+
             switch (reader.NodeType)
             {
                 case XmlNodeType.Element:
                     writer.WriteStartElement(reader.Prefix, reader.LocalName, reader.NamespaceURI);
                     if (reader.HasAttributes)
                     {
-                        while (reader.MoveToNextAttribute()) writer.WriteAttributeString(reader.Prefix, reader.LocalName, reader.NamespaceURI, reader.Value);
+                        while (reader.MoveToNextAttribute())
+                        {
+                            writer.WriteAttributeString(reader.Prefix, reader.LocalName, reader.NamespaceURI, reader.Value);
+                        }
+
                         reader.MoveToElement();
                     }
-                    if (reader.IsEmptyElement) writer.WriteEndElement();
+                    if (reader.IsEmptyElement)
+                    {
+                        writer.WriteEndElement();
+                    }
+
                     break;
                 case XmlNodeType.EndElement: writer.WriteFullEndElement(); break;
                 case XmlNodeType.Text: case XmlNodeType.CDATA: case XmlNodeType.SignificantWhitespace: writer.WriteString(reader.Value); break;

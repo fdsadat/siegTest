@@ -30,7 +30,10 @@ public sealed class RabbitTests : SqlFixture
     public async Task StartRabbitAsync()
     {
         if (!int.TryParse(Setting("PORT", "5672"), out var port) || port is < 1 or > 65535)
+        {
             throw new InvalidOperationException("FISCAL_TEST_RABBIT_PORT must be an integer from 1 to 65535.");
+        }
+
         rabbit = new RabbitOptions
         {
             Host = Setting("HOST", "localhost"), Port = port,
@@ -51,10 +54,18 @@ public sealed class RabbitTests : SqlFixture
     [OneTimeTearDown]
     public async Task StopRabbitAsync()
     {
-        if (cleanupBroker is null) return;
+        if (cleanupBroker is null)
+        {
+            return;
+        }
+
         try
         {
-            if (!cleanupBroker.IsConnected) return;
+            if (!cleanupBroker.IsConnected)
+            {
+                return;
+            }
+
             using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(30));
             var connection = await cleanupBroker.ConnectionAsync(deadline.Token);
             await using var channel = await connection.CreateChannelAsync(cancellationToken: deadline.Token);
@@ -62,12 +73,17 @@ public sealed class RabbitTests : SqlFixture
             {
                 var queue = cleanupBroker.Queue(type);
                 for (var i = 1; i <= RabbitBroker.RetryDelays.Length; i++)
+                {
                     await channel.QueueDeleteAsync(queue + ".retry." + i, false, false, cancellationToken: deadline.Token);
+                }
+
                 await channel.QueueDeleteAsync(queue, false, false, cancellationToken: deadline.Token);
                 await channel.QueueDeleteAsync(queue + ".dead", false, false, cancellationToken: deadline.Token);
             }
             foreach (var exchange in new[] { cleanupBroker.EventsExchange, cleanupBroker.RetryExchange, cleanupBroker.DeadExchange })
+            {
                 await channel.ExchangeDeleteAsync(exchange, cancellationToken: deadline.Token);
+            }
         }
         finally { await cleanupBroker.DisposeAsync(); }
     }
@@ -85,7 +101,11 @@ public sealed class RabbitTests : SqlFixture
         }).Build();
         var services = new ServiceCollection();
         services.AddLogging().AddApplication().AddInfrastructure(configuration);
-        if (parser is not null) services.AddSingleton(parser);
+        if (parser is not null)
+        {
+            services.AddSingleton(parser);
+        }
+
         var provider = services.BuildServiceProvider();
         var broker = provider.GetRequiredService<RabbitBroker>();
         await using var channel = await broker.ConsumerChannelAsync(CancellationToken.None);
@@ -93,7 +113,10 @@ public sealed class RabbitTests : SqlFixture
         {
             await channel.QueuePurgeAsync(broker.Queue(type));
             await channel.QueuePurgeAsync(broker.Queue(type) + ".dead");
-            for (var i = 1; i <= RabbitBroker.RetryDelays.Length; i++) await channel.QueuePurgeAsync(broker.Queue(type) + ".retry." + i);
+            for (var i = 1; i <= RabbitBroker.RetryDelays.Length; i++)
+            {
+                await channel.QueuePurgeAsync(broker.Queue(type) + ".retry." + i);
+            }
         }
         return provider;
     }
@@ -102,7 +125,10 @@ public sealed class RabbitTests : SqlFixture
     private static async Task WaitAsync(Func<Task<bool>> condition, int seconds = 30)
     {
         using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(seconds));
-        while (!await condition()) await Task.Delay(100, deadline.Token);
+        while (!await condition())
+        {
+            await Task.Delay(100, deadline.Token);
+        }
     }
     private Task<bool> HasStatusAsync(Guid id, ProcessingStatus status) => InScopeAsync(s =>
         s.GetRequiredService<FiscalDbContext>().Processing.AnyAsync(p => p.DocumentId == id && p.Status == status));
