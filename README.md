@@ -52,6 +52,22 @@ dotnet run --project src/FiscalDocuments.Worker --launch-profile "Local Debug"
 
 Use `Ctrl+C` em cada terminal para parar. O worker precisa estar em execução para que documentos cheguem a `Completed`.
 
+## Limpar dados e recomeçar os testes locais
+
+Pare a API e o worker. Para visualizar a ação sem apagar dados:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./scripts/Reset-LocalData.ps1 -WhatIf
+```
+
+Para executar a limpeza:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./scripts/Reset-LocalData.ps1
+```
+
+O script usa a configuração Development do worker e as variáveis de ambiente. Esvazia as oito tabelas da aplicação (documentos, processamento, recibos, resumos, falhas, outbox, inbox e operações idempotentes), a fila de processamento, as três filas de retry e a DLQ do prefixo configurado. Isso permite reenviar XMLs que haviam sido excluídos. Não remove o banco, as migrations, `.env`, configurações, chaves ou bancos de outros sistemas. O banco deve estar inicializado e o RabbitMQ disponível. A limpeza SQL é transacional; a limpeza das filas é separada. Em caso de falha parcial, mantenha os processos parados e execute novamente. Não execute simultaneamente com testes ou outras instâncias da aplicação. Após a conclusão, inicie API e worker normalmente.
+
 ## Depurar API e worker no Visual Studio
 
 Após a inicialização local, abra `FiscalDocuments.sln`, configure múltiplos projetos de inicialização e escolha **Start** para `FiscalDocuments.Api` e `FiscalDocuments.Worker` (demais: **None**). Selecione **Local Debug** para ambos e pressione **F5**. Swagger: http://localhost:54392/swagger.
@@ -128,7 +144,7 @@ Estados: `PendingExtraction → Completed`. Uma falha permanente ou o esgotament
 | `GET /api/v1/documents` | Filtros e paginação, sem conteúdo XML na listagem. |
 | `GET /api/v1/documents/{id}` | Documento atual, XML sanitizado, processamento, resumo e cabeçalho `ETag`. |
 | `PUT /api/v1/documents/{id}` | Um XML no corpo `application/xml`, mantendo tipo e identidade fiscal. |
-| `DELETE /api/v1/documents/{id}` | Exclusão lógica; repetição retorna `204`. |
+| `DELETE /api/v1/documents/{id}` | Exclusão lógica; retorna `200` com JSON ao excluir um documento ativo, ou `204` sem corpo quando inexistente, já excluído ou em repetição da mesma operação. |
 | `POST /api/v1/documents/{id}/reprocess` | Reinicia somente uma execução atual em `Failed`. |
 
 Upload de exemplo, incluindo arquivo inválido e duplicado:
@@ -157,7 +173,18 @@ Invoke-RestMethod 'http://localhost:54392/api/v1/documents?state=SP&pageSize=20'
 
 PUT e DELETE exigem `If-Match` com o ETag entre aspas. Ausência: `428`; formato inválido: `400`; valor desatualizado: `412`. `rowversion` é o token atual de concorrência, não um histórico. O worker altera registros de processamento separados e não invalida esse ETag.
 
-PUT, DELETE e reprocessamento exigem `Idempotency-Key` de 8 a 128 caracteres ASCII. A operação é identificada por usuário, ação, documento e chave; o fingerprint também considera o corpo e as precondições aplicáveis. A resposta bem-sucedida é persistida na mesma transação. Por 24 horas, uma repetição idêntica recebe a resposta original, inclusive após mudança do ETag; outra operação com a mesma chave retorna `409`. Registros expirados podem ser reutilizados. O índice de identidade e os recibos de conteúdo não expiram.
+PUT, DELETE e reprocessamento exigem `Idempotency-Key` de 8 a 128 caracteres ASCII. A operação é identificada por usuário, ação, documento e chave; o fingerprint também considera o corpo e as precondições aplicáveis. A resposta bem-sucedida é persistida na mesma transação. Por 24 horas, PUT e reprocessamento repetidos com os mesmos parâmetros recebem a resposta original, inclusive após mudança do ETag. No DELETE, uma repetição idêntica de uma operação concluída retorna `204` sem corpo. Outra operação com a mesma chave e fingerprint diferente retorna `409`, inclusive no DELETE. Registros expirados podem ser reutilizados. O índice de identidade e os recibos de conteúdo não expiram.
+
+O DELETE retorna `200` e `application/json` somente ao excluir um documento ativo, por exemplo:
+
+```json
+{
+  "id": "fd24f6b3-be32-4593-a94b-501737967b41",
+  "message": "Documento excluído com sucesso."
+}
+```
+
+Se o documento já estiver excluído ou não existir, a resposta é `204` sem corpo, mantendo as validações obrigatórias dos cabeçalhos. Repetições de DELETE também retornam `204`, inclusive para operações registradas antes dessa alteração, sem reexecutar a exclusão nem reescrever a resposta armazenada. PUT e reprocessamento continuam reproduzindo suas respostas originais.
 
 Para substituir, espere `Completed` ou `Failed`. Enquanto houver extração, resumo ou retry pendente, a resposta será `409`. Mesma identidade com conteúdo diferente no POST também retorna `409`: use PUT. Conteúdo igual ao atual é uma operação sem alteração; conteúdo anterior conhecido retorna `409`, sem restauração.
 
@@ -259,5 +286,27 @@ A conexão SQL dos testes deve permitir criar/remover bancos. Cada fixture usa u
 Para somente unitários: `dotnet test tests/FiscalDocuments.UnitTests`. Para HTTP sem serviços: `dotnet test tests/FiscalDocuments.IntegrationTests --filter 'TestCategory=Http'`. Para integração SQL sem RabbitMQ: `dotnet test tests/FiscalDocuments.IntegrationTests --filter 'TestCategory=Sql'`. A CI Linux fornece SQL/RabbitMQ por service containers e informa as mesmas variáveis explicitamente; Testcontainers não faz parte da solução.
 
 Cobertura principal: três layouts, sanitização, XXE, duplicidade simultânea/lote, rollback, substituição condicionada, ETag, chave idempotente, reenvio antigo, exclusão com mensagem em trânsito, filtros/cursor, JWT/Swagger, retry real, publicação sem rota, redelivery após commit e reconciliação da DLQ.
+
+### Testes de arquitetura
+
+A fixture `ArchitectureTests` pertence à suíte unitária NUnit e usa a categoria `Architecture`. Verifica as referências declaradas nos `.csproj` e as dependências diretas das assemblies compiladas de Domain e Application. Não precisa de SQL Server, RabbitMQ ou API em execução, nem de pacote adicional.
+
+| Projeto | Referências internas permitidas |
+| --- | --- |
+| Domain | Nenhuma |
+| Application | Domain |
+| Infrastructure | Application e Domain |
+| Api | Application, Domain e Infrastructure |
+| Worker | Application, Domain e Infrastructure |
+
+Domain também não pode declarar `PackageReference` nem depender de MediatR, ASP.NET Core, EF Core ou RabbitMQ. Application não pode depender de Infrastructure, Api, Worker, ASP.NET Core, EF Core ou RabbitMQ; MediatR e os componentes de injeção de dependência atuais são permitidos. As falhas identificam o projeto ou assembly e a referência proibida. A raiz é localizada pelo arquivo `FiscalDocuments.sln`, sem caminhos absolutos fixos.
+
+Para executar somente arquitetura:
+
+```powershell
+dotnet test tests/FiscalDocuments.UnitTests --filter "TestCategory=Architecture"
+```
+
+Esses testes também são executados pela CI existente junto com a suíte NUnit. O teste de carga fica fora desta alteração.
 
 Dependências ficam fixadas nos projetos. MediatR 12.5.0 foi escolhido sob sua licença Apache-2.0; assertions usam NUnit. A ferramenta EF local está fixada em 10.0.15. Consulte as licenças dos respectivos pacotes antes de atualizar versões principais.

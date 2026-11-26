@@ -252,22 +252,76 @@ public sealed class DocumentTests : SqlFixture
         var accepted = await ReceiveAsync();
         var details = await DetailsAsync(accepted.DocumentId);
         var oldEvent = await EventAsync(IntegrationEvent.Received);
-        async Task<HttpResponseMessage> Delete()
+        async Task<HttpResponseMessage> Delete(string key = "delete-00001")
         {
             using var request = new HttpRequestMessage(HttpMethod.Delete, $"/api/v1/documents/{accepted.DocumentId}");
             request.Headers.TryAddWithoutValidation("If-Match", details.Document.ETag);
-            request.Headers.Add("Idempotency-Key", "delete-00001");
+            request.Headers.Add("Idempotency-Key", key);
             return await Client.SendAsync(request);
         }
         using var first = await Delete();
+        var originalOperation = await InScopeAsync(s => s.GetRequiredService<FiscalDbContext>().Operations.AsNoTracking().SingleAsync());
         using var second = await Delete();
-        Assert.That(first.StatusCode, Is.EqualTo(HttpStatusCode.NoContent));
-        Assert.That(second.StatusCode, Is.EqualTo(first.StatusCode));
+        Assert.That(first.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+        Assert.That(second.StatusCode, Is.EqualTo(HttpStatusCode.NoContent));
+        Assert.That(first.Content.Headers.ContentType!.MediaType, Is.EqualTo("application/json"));
+        var confirmation = await first.Content.ReadFromJsonAsync<DeleteDocumentResponse>(JsonDefaults.Options);
+        Assert.That(confirmation, Is.EqualTo(new DeleteDocumentResponse(accepted.DocumentId, "Documento excluído com sucesso.")));
+        Assert.That(await second.Content.ReadAsStringAsync(), Is.Empty);
+        var storedOperation = await InScopeAsync(s => s.GetRequiredService<FiscalDbContext>().Operations.AsNoTracking().SingleAsync());
+        Assert.That(storedOperation.StatusCode, Is.EqualTo(200));
+        Assert.That(storedOperation.ResponseJson, Is.EqualTo(originalOperation.ResponseJson));
+        Assert.That(storedOperation.ExpiresAt, Is.EqualTo(originalOperation.ExpiresAt));
+        using var alreadyDeleted = await Delete("delete-00002");
+        Assert.That(alreadyDeleted.StatusCode, Is.EqualTo(HttpStatusCode.NoContent));
+        Assert.That(await alreadyDeleted.Content.ReadAsStringAsync(), Is.Empty);
+        using var incompatible = new HttpRequestMessage(HttpMethod.Delete, $"/api/v1/documents/{accepted.DocumentId}");
+        incompatible.Headers.TryAddWithoutValidation("If-Match", "\"AAAAAAAAAAA=\"");
+        incompatible.Headers.Add("Idempotency-Key", "delete-00001");
+        using var conflict = await Client.SendAsync(incompatible);
+        Assert.That(conflict.StatusCode, Is.EqualTo(HttpStatusCode.Conflict));
         await ProcessAsync(oldEvent);
         using var get = await Client.GetAsync($"/api/v1/documents/{accepted.DocumentId}");
         Assert.That(get.StatusCode, Is.EqualTo(HttpStatusCode.NotFound));
         Assert.That(await InScopeAsync(s => s.GetRequiredService<FiscalDbContext>().Summaries.CountAsync()), Is.Zero);
         Assert.ThrowsAsync<AppException>(async () => await ReceiveAsync());
+    }
+
+    [Test]
+    public async Task Delete_missing_document_returns_no_content_including_repeats()
+    {
+        var id = Guid.NewGuid();
+        async Task<HttpResponseMessage> Delete()
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Delete, $"/api/v1/documents/{id}");
+            request.Headers.TryAddWithoutValidation("If-Match", "\"AAAAAAAAAAA=\"");
+            request.Headers.Add("Idempotency-Key", "missing-delete-001");
+            return await Client.SendAsync(request);
+        }
+        using var first = await Delete();
+        using var repeated = await Delete();
+        Assert.That(first.StatusCode, Is.EqualTo(HttpStatusCode.NoContent));
+        Assert.That(await first.Content.ReadAsStringAsync(), Is.Empty);
+        Assert.That(repeated.StatusCode, Is.EqualTo(first.StatusCode));
+        Assert.That(await repeated.Content.ReadAsStringAsync(), Is.EqualTo(await first.Content.ReadAsStringAsync()));
+    }
+
+    [TestCase(null, 428)]
+    [TestCase("invalid", 400)]
+    [TestCase("\"AAAAAAAAAAA=\"", 412)]
+    public async Task Delete_preserves_etag_preconditions(string? etag, int expectedStatus)
+    {
+        var accepted = await ReceiveAsync();
+        using var request = new HttpRequestMessage(HttpMethod.Delete, $"/api/v1/documents/{accepted.DocumentId}");
+        if (etag is not null)
+        {
+            request.Headers.TryAddWithoutValidation("If-Match", etag);
+        }
+
+        request.Headers.Add("Idempotency-Key", "delete-precondition-001");
+        using var response = await Client.SendAsync(request);
+        Assert.That((int)response.StatusCode, Is.EqualTo(expectedStatus));
+        Assert.That((await DetailsAsync(accepted.DocumentId)).Document.Id, Is.EqualTo(accepted.DocumentId));
     }
 
     [Test]
@@ -280,6 +334,11 @@ public sealed class DocumentTests : SqlFixture
         request.Headers.Add("Idempotency-Key", "replay-00001");
         using var response = await Client.SendAsync(request);
         Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.Accepted));
+        using var replay = new HttpRequestMessage(HttpMethod.Post, $"/api/v1/documents/{accepted.DocumentId}/reprocess");
+        replay.Headers.Add("Idempotency-Key", "replay-00001");
+        using var repeated = await Client.SendAsync(replay);
+        Assert.That(repeated.StatusCode, Is.EqualTo(response.StatusCode));
+        Assert.That(await repeated.Content.ReadAsStringAsync(), Is.EqualTo(await response.Content.ReadAsStringAsync()));
         await ProcessAsync(old);
         var details = await DetailsAsync(accepted.DocumentId);
         Assert.That(details.ProcessingId, Is.Not.EqualTo(old.ProcessingId));
@@ -415,5 +474,16 @@ public sealed class DocumentTests : SqlFixture
         Assert.That((int)missing.StatusCode, Is.EqualTo(428));
         using var swagger = await Client.GetAsync("/swagger/v1/swagger.json");
         Assert.That(swagger.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+        using var specification = JsonDocument.Parse(await swagger.Content.ReadAsStringAsync());
+        var delete = specification.RootElement.GetProperty("paths").GetProperty("/api/v1/documents/{id}").GetProperty("delete");
+        var responses = delete.GetProperty("responses");
+        Assert.That(responses.GetProperty("200").GetProperty("content").GetProperty("application/json")
+            .GetProperty("schema").GetProperty("$ref").GetString(), Is.EqualTo("#/components/schemas/DeleteDocumentResponse"));
+        Assert.That(responses.GetProperty("204").TryGetProperty("content", out _), Is.False);
+        foreach (var header in new[] { "If-Match", "Idempotency-Key" })
+        {
+            Assert.That(delete.GetProperty("parameters").EnumerateArray()
+                .Any(parameter => parameter.GetProperty("name").GetString() == header && parameter.GetProperty("required").GetBoolean()), Is.True);
+        }
     }
 }

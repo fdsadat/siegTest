@@ -54,6 +54,10 @@ public sealed class DocumentOperationFilter : IOperationFilter
                 }
             };
         }
+        if (method == "DELETE")
+        {
+            operation.Description = "Retorna 200 com ID e mensagem ao excluir um documento ativo. Documento inexistente, já excluído ou repetição de uma exclusão concluída com a mesma Idempotency-Key retorna 204 sem corpo. A reutilização da chave com fingerprint diferente retorna 409.";
+        }
         // Documentação adicional para os endpoints de PUT e DELETE, incluindo /reprocess.
         if (method == "PUT" || method == "DELETE" || path?.EndsWith("/reprocess", StringComparison.Ordinal) == true)
         {

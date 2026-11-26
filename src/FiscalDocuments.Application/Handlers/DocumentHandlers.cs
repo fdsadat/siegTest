@@ -97,7 +97,7 @@ public sealed class DocumentHandlers(IWriteStore store, IXmlDocuments xml, IFing
 
             CheckETag(document, request.IfMatch);
             document.Delete(clock.GetUtcNow());
-            return new MutationResult(204);
+            return new MutationResult(200, new DeleteDocumentResponse(request.Id, "Documento excluído com sucesso."));
         }, ct);
     }
 
@@ -133,6 +133,11 @@ public sealed class DocumentHandlers(IWriteStore store, IXmlDocuments xml, IFing
             if (previous.Fingerprint != fingerprint)
             {
                 throw new AppException("idempotency_key_reused", 409);
+            }
+
+            if (action == "delete")
+            {
+                return new MutationResult(204);
             }
 
             return new MutationResult(previous.StatusCode,

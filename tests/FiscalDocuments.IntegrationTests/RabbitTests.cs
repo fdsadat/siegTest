@@ -137,6 +137,47 @@ public sealed class RabbitTests : SqlFixture
     }
 
     [Test]
+    public async Task Local_reset_clears_application_data_and_queues_and_preserves_schema()
+    {
+        await using var provider = await WorkersAsync();
+        var broker = provider.GetRequiredService<RabbitBroker>();
+        var accepted = await ReceiveAsync();
+        var outbox = await InScopeAsync(s => s.GetRequiredService<FiscalDbContext>().Outbox.AsNoTracking().SingleAsync());
+        var message = JsonSerializer.Deserialize<IntegrationEvent>(outbox.Payload, JsonDefaults.Options)!;
+        await InScopeAsync(s => s.GetRequiredService<EventProcessor>().ProcessAsync(message, CancellationToken.None));
+        await InScopeAsync(async s =>
+        {
+            var db = s.GetRequiredService<FiscalDbContext>();
+            db.Operations.Add(new IdempotentOperation { Scope = "reset-test", Fingerprint = "test", StatusCode = 200, ExpiresAt = DateTimeOffset.UtcNow.AddHours(24) });
+            db.Failures.Add(new ProcessingFailure { DocumentId = accepted.DocumentId, ProcessingId = message.ProcessingId, ContentRevision = 1, ErrorCode = "test", FailedAt = DateTimeOffset.UtcNow });
+            await db.SaveChangesAsync();
+            return true;
+        });
+        await broker.PublishAsync(outbox.Payload, IntegrationEvent.Received, broker.EventsExchange, 0, null, CancellationToken.None);
+        await broker.PublishAsync(outbox.Payload, broker.ProcessingQueue, broker.DeadExchange, 0, null, CancellationToken.None);
+        for (var i = 1; i <= RabbitBroker.RetryDelays.Length; i++)
+        {
+            await broker.PublishAsync(outbox.Payload, broker.ProcessingQueue + ".retry." + i, broker.RetryExchange, i, null, CancellationToken.None);
+        }
+
+        Assert.That(await LocalDataReset.ResetAsync(provider), Is.EqualTo(8));
+        await using var channel = await broker.ConsumerChannelAsync(CancellationToken.None);
+        foreach (var queue in new[] { broker.ProcessingQueue, broker.ProcessingQueue + ".dead", broker.ProcessingQueue + ".retry.1", broker.ProcessingQueue + ".retry.2", broker.ProcessingQueue + ".retry.3" })
+        {
+            Assert.That((await channel.QueueDeclarePassiveAsync(queue)).MessageCount, Is.Zero);
+        }
+
+        await InScopeAsync(async s =>
+        {
+            var db = s.GetRequiredService<FiscalDbContext>();
+            Assert.That(await db.Documents.CountAsync(), Is.Zero);
+            Assert.That((await db.Database.GetAppliedMigrationsAsync()).Count(), Is.EqualTo(1));
+            return true;
+        });
+        Assert.That((await ReceiveAsync()).Disposition, Is.EqualTo("Accepted"));
+    }
+
+    [Test]
     public async Task Full_outbox_broker_consumer_pipeline_retries_transient_error_and_commits_once()
     {
         var faulty = new FaultingXml(Factory.Services.GetRequiredService<IXmlDocuments>(), false);

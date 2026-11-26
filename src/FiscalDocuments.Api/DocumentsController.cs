@@ -158,6 +158,8 @@ public sealed class DocumentsController(ISender sender) : ControllerBase
 
     [HttpDelete("{id:guid}")]
     [Authorize(Policy = "documents.write")]
+    [ProducesResponseType(typeof(DeleteDocumentResponse), 200)]
+    [ProducesResponseType(204)]
     public async Task<IActionResult> Delete(Guid id, CancellationToken ct)
     {
         return Mutation(await sender.Send(new DeleteDocument(id,
