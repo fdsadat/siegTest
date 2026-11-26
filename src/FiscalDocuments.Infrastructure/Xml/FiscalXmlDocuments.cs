@@ -39,37 +39,30 @@ public sealed class FiscalXmlDocuments(IFingerprints fingerprints) : IXmlDocumen
                 type = DocumentType.NFe;
                 var body = root.Name.LocalName == "NFe" ? root : One(root, "NFe");
                 var info = One(body, "infNFe");
-                Version(info, "4.00");
                 identity = AccessKey(info, "NFe", 44);
                 var emit = One(info, "emit");
                 issuer = TaxIdentifier(emit);
                 state = Text(One(emit, "enderEmit"), "UF");
                 var ide = One(info, "ide");
-                if (Text(ide, "mod") != "55") throw new AppException("unsupported_document_model");
                 issued = Text(ide, "dhEmi");
                 total = Text(One(One(info, "total"), "ICMSTot"), "vNF");
-                CheckIssuerInKey(identity, issuer);
             }
             else if (root.Name.NamespaceName == CteNamespace && root.Name.LocalName is "CTe" or "cteProc")
             {
                 type = DocumentType.CTe;
                 var body = root.Name.LocalName == "CTe" ? root : One(root, "CTe");
                 var info = One(body, "infCte");
-                Version(info, "4.00");
                 identity = AccessKey(info, "CTe", 44);
                 var emit = One(info, "emit");
                 issuer = TaxIdentifier(emit);
                 state = Text(One(emit, "enderEmit"), "UF");
                 var ide = One(info, "ide");
-                if (Text(ide, "mod") != "57") throw new AppException("unsupported_document_model");
                 issued = Text(ide, "dhEmi");
                 total = Text(One(info, "vPrest"), "vTPrest");
-                CheckIssuerInKey(identity, issuer);
             }
             else if (root.Name.NamespaceName == NfseNamespace && root.Name.LocalName == "NFSe")
             {
                 type = DocumentType.NFSe;
-                Version(root, "1.01");
                 var info = One(root, "infNFSe");
                 identity = AccessKey(info, "NFS", 50);
                 var dps = One(One(info, "DPS"), "infDPS");
@@ -89,7 +82,7 @@ public sealed class FiscalXmlDocuments(IFingerprints fingerprints) : IXmlDocumen
                 !DateTimeOffset.TryParse(issued, CultureInfo.InvariantCulture, DateTimeStyles.None, out var issuedAt))
                 throw new AppException("invalid_issue_date");
             var amount = Amount(total);
-            _ = fingerprints.TaxId(issuer);
+            var issuerHmac = fingerprints.TaxId(issuer);
             var maskedIssuer = new string('*', issuer.Length);
             // Projeção apenas dos campos permitidos: texto livre, chaves de acesso, referências, assinaturas,
             // certificados e atributos arbitrários da entrada nunca são persistidos.
@@ -99,7 +92,7 @@ public sealed class FiscalXmlDocuments(IFingerprints fingerprints) : IXmlDocumen
                 new XElement("State", state), new XElement("TotalAmount", amount.ToString("F2", CultureInfo.InvariantCulture)))
                 .ToString(SaveOptions.DisableFormatting);
             return new FiscalXml(type, fingerprints.Hash($"identity:{type}:{identity}"), fingerprints.Hash(bytes.Span),
-                maskedIssuer, fingerprints.TaxId(issuer), issuedAt, state, sanitized);
+                maskedIssuer, issuerHmac, issuedAt, state, sanitized);
         }
         catch (XmlException) { throw new AppException("malformed_or_unsafe_xml"); }
         catch (InvalidOperationException) { throw new AppException("ambiguous_xml"); }
@@ -179,14 +172,6 @@ public sealed class FiscalXmlDocuments(IFingerprints fingerprints) : IXmlDocumen
         if (!value.StartsWith(prefix, StringComparison.Ordinal) || value.Length != prefix.Length + length || !value[prefix.Length..].All(char.IsAsciiDigit))
             throw new AppException("invalid_fiscal_identity");
         return value[prefix.Length..];
-    }
-    private static void CheckIssuerInKey(string identity, string issuer)
-    {
-        if (issuer.Length != 14 || identity.Substring(6, 14) != issuer) throw new AppException("issuer_identity_mismatch");
-    }
-    private static void Version(XElement element, string expected)
-    {
-        if ((string?)element.Attribute("versao") != expected) throw new AppException("unsupported_xml_version");
     }
     private static decimal Amount(string value)
     {

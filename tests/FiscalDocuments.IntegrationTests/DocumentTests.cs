@@ -77,6 +77,28 @@ public sealed class DocumentTests : SqlFixture
     }
 
     [Test]
+    public async Task Relaxed_fiscal_metadata_preserves_resend_idempotency_and_summary_processing()
+    {
+        var input = Encoding.UTF8.GetBytes(Encoding.UTF8.GetString(Sample())
+            .Replace("versao=\"4.00\"", "versao=\"9.99\"", StringComparison.Ordinal)
+            .Replace("<mod>55</mod>", "", StringComparison.Ordinal)
+            .Replace("<CNPJ>12345678000195</CNPJ>", "<CNPJ>98765432000199</CNPJ>", StringComparison.Ordinal));
+        var accepted = await ReceiveAsync(input);
+        var repeated = await ReceiveAsync(input);
+        await CompleteAsync();
+        var details = await DetailsAsync(accepted.DocumentId);
+        Assert.Multiple(() =>
+        {
+            Assert.That(accepted.Disposition, Is.EqualTo("Accepted"));
+            Assert.That(repeated.DocumentId, Is.EqualTo(accepted.DocumentId));
+            Assert.That(repeated.Disposition, Is.EqualTo("AlreadyReceived"));
+            Assert.That(details.Document.ProcessingStatus, Is.EqualTo(ProcessingStatus.Completed));
+            Assert.That(details.Summary!.TotalAmountInCents, Is.EqualTo(15025));
+            Assert.That(details.SanitizedXml, Does.Not.Contain("98765432000199"));
+        });
+    }
+
+    [Test]
     public async Task Pipeline_is_idempotent_and_does_not_change_document_etag()
     {
         var accepted = await ReceiveAsync();

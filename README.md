@@ -185,11 +185,15 @@ Exclusão oculta o documento, mantendo tombstone e recibos contra reinserção. 
 
 Os arquivos de `samples/` são exemplos sintéticos reduzidos para o contrato implementado; não são notas autorizadas nem exemplos completos válidos contra todos os XSDs oficiais.
 
-| Tipo | Raiz/layout | Identidade | Emissão / emitente / UF / valor |
+| Tipo | Raiz/layout de referência | Identidade | Emissão / emitente / UF / valor |
 | --- | --- | --- | --- |
 | NF-e | `NFe` ou `nfeProc`, namespace Portal Fiscal, 4.00, modelo 55 | `infNFe/@Id` | `ide/dhEmi`, `emit/CNPJ`, `emit/enderEmit/UF`, `total/ICMSTot/vNF` |
 | CT-e | `CTe` ou `cteProc`, namespace Portal Fiscal, 4.00, modelo 57 | `infCte/@Id` | `ide/dhEmi`, `emit/CNPJ`, `emit/enderEmit/UF`, `vPrest/vTPrest` |
 | NFSe | `NFSe`, namespace SPED NFSe, nacional 1.01 | `infNFSe/@Id` | `DPS/infDPS/dhEmi`, `prest/CPF` ou `CNPJ`, UF pelo prefixo IBGE de `prest/end/endNac/cMun`, `valores/vServPrest/vServ` |
+
+As versões e os modelos da tabela descrevem os exemplos de referência. O parser identifica o tipo pela raiz e pelo namespace e exige a estrutura dos campos utilizados. Não verifica a versão exata, o campo de modelo `55/57` nem a correspondência entre o CNPJ do emitente e o trecho da chave de acesso. Versões e modelos ausentes ou diferentes são aceitos quando a estrutura necessária permanece compatível; isso não acrescenta suporte automático a outros layouts de NFSe nem certifica a validade fiscal do XML.
+
+São mantidas as verificações de formato da identidade fiscal (prefixo e quantidade de dígitos), CNPJ/CPF, UF, código de município usado para obter a UF da NFSe, data com fuso horário explícito e valor monetário não negativo com até duas casas decimais, dentro do limite da persistência. Campos necessários ausentes, vazios ou ambíguos são rejeitados.
 
 O segundo consumidor calcula `competence` (`AAAA-MM`) e `totalAmountInCents` com decimal, sem ponto flutuante. DTD, entidades externas, campos ambíguos, profundidade acima de 64, tamanhos excessivos e valores monetários inválidos são rejeitados. Não há consulta fiscal externa, validação XSD, cálculo de dígito verificador ou validação de assinatura.
 

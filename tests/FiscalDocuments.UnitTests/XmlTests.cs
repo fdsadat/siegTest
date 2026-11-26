@@ -1,4 +1,5 @@
 using System.Text;
+using System.Xml.Linq;
 using FiscalDocuments.Application;
 using FiscalDocuments.Domain;
 using FiscalDocuments.Infrastructure.Xml;
@@ -37,6 +38,65 @@ public sealed class XmlTests
             Assert.That(parsed.IdentityHmac, Has.Length.EqualTo(64));
             Assert.That(extracted.TotalAmount, Is.EqualTo(decimal.Parse(amount, System.Globalization.CultureInfo.InvariantCulture)));
             Assert.That(extracted.Competence, Is.EqualTo("2026-11"));
+        });
+    }
+
+    [TestCase("nfe.xml", null)]
+    [TestCase("nfe.xml", "9.99")]
+    [TestCase("cte.xml", null)]
+    [TestCase("cte.xml", "9.99")]
+    [TestCase("nfse.xml", null)]
+    [TestCase("nfse.xml", "9.99")]
+    public void Accepts_missing_or_different_versions_when_required_structure_is_preserved(string name, string? version)
+    {
+        var original = parser.ValidateAndSanitize(Sample(name));
+        var document = XDocument.Parse(Encoding.UTF8.GetString(Sample(name)));
+        foreach (var attribute in document.Descendants().Attributes("versao").ToList())
+        {
+            if (version is null) attribute.Remove();
+            else attribute.Value = version;
+        }
+        var parsed = parser.ValidateAndSanitize(Encoding.UTF8.GetBytes(document.ToString(SaveOptions.DisableFormatting)));
+        Assert.Multiple(() =>
+        {
+            Assert.That(parsed, Is.EqualTo(original with { ContentHmac = parsed.ContentHmac }));
+            Assert.That(parsed.ContentHmac, Is.Not.EqualTo(original.ContentHmac));
+        });
+    }
+
+    [TestCase("nfe.xml", null)]
+    [TestCase("nfe.xml", "99")]
+    [TestCase("cte.xml", null)]
+    [TestCase("cte.xml", "99")]
+    public void Accepts_missing_or_different_models_when_required_structure_is_preserved(string name, string? model)
+    {
+        var original = parser.ValidateAndSanitize(Sample(name));
+        var document = XDocument.Parse(Encoding.UTF8.GetString(Sample(name)));
+        var field = document.Descendants().Single(e => e.Name.LocalName == "mod");
+        if (model is null) field.Remove();
+        else field.Value = model;
+        var parsed = parser.ValidateAndSanitize(Encoding.UTF8.GetBytes(document.ToString(SaveOptions.DisableFormatting)));
+        Assert.Multiple(() =>
+        {
+            Assert.That(parsed, Is.EqualTo(original with { ContentHmac = parsed.ContentHmac }));
+            Assert.That(parsed.ContentHmac, Is.Not.EqualTo(original.ContentHmac));
+        });
+    }
+
+    [TestCase("nfe.xml")]
+    [TestCase("cte.xml")]
+    public void Accepts_issuer_different_from_access_key_and_uses_declared_issuer(string name)
+    {
+        var original = parser.ValidateAndSanitize(Sample(name));
+        var input = Encoding.UTF8.GetBytes(Encoding.UTF8.GetString(Sample(name))
+            .Replace("<CNPJ>12345678000195</CNPJ>", "<CNPJ>98765432000199</CNPJ>", StringComparison.Ordinal));
+        var parsed = parser.ValidateAndSanitize(input);
+        Assert.Multiple(() =>
+        {
+            Assert.That(parsed.IdentityHmac, Is.EqualTo(original.IdentityHmac));
+            Assert.That(parsed.ContentHmac, Is.Not.EqualTo(original.ContentHmac));
+            Assert.That(parsed.IssuerHmac, Is.EqualTo(fingerprints.TaxId("98765432000199")));
+            Assert.That(parsed.SanitizedXml, Is.EqualTo(original.SanitizedXml));
         });
     }
 
@@ -81,8 +141,13 @@ public sealed class XmlTests
     [TestCase("150.25", "1.001")]
     [TestCase("150.25", "NaN")]
     [TestCase("2026-11-25T10:00:00-03:00", "2026-11-25T10:00:00")]
-    [TestCase("versao=\"4.00\"", "versao=\"3.10\"")]
     [TestCase("<UF>SP</UF>", "<UF>XX</UF>")]
+    [TestCase("<vNF>150.25</vNF>", "")]
+    [TestCase("<vNF>150.25</vNF>", "<vNF> </vNF>")]
+    [TestCase("150.25", "10000000000000000.00")]
+    [TestCase("<CNPJ>12345678000195</CNPJ>", "<CNPJ>123</CNPJ>")]
+    [TestCase("Id=\"NFe35261112345678000195550010000000011000000010\"", "")]
+    [TestCase("http://www.portalfiscal.inf.br/nfe", "urn:unsupported")]
     public void Rejects_invalid_required_fields(string oldValue, string newValue)
     {
         var input = Encoding.UTF8.GetBytes(Encoding.UTF8.GetString(Sample("nfe.xml")).Replace(oldValue, newValue, StringComparison.Ordinal));
