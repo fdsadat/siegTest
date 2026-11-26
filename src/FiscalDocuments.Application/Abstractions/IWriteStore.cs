@@ -13,8 +13,8 @@ public interface IWriteStore
     Task<DocumentProcessing> ProcessingAsync(Guid documentId, CancellationToken ct);
     Task<UploadReceipt?> ReceiptAsync(Guid documentId, string contentHmac, CancellationToken ct);
     Task<IdempotentOperation?> OperationAsync(string scope, CancellationToken ct);
-    Task<bool> HasInboxAsync(string consumer, Guid eventId, CancellationToken ct);
-    Task<bool> HasFailureAsync(Guid processingId, string stage, CancellationToken ct);
+    Task<bool> HasInboxAsync(Guid eventId, CancellationToken ct);
+    Task<bool> HasFailureAsync(Guid processingId, CancellationToken ct);
     Task ClearSummaryAsync(Guid documentId, CancellationToken ct);
     void Add<T>(T entity) where T : class;
 }

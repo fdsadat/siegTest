@@ -45,7 +45,6 @@ public sealed class DocumentTests : SqlFixture
     private async Task CompleteAsync()
     {
         await ProcessAsync(await EventAsync(IntegrationEvent.Received));
-        await ProcessAsync(await EventAsync(IntegrationEvent.Processed));
     }
     private async Task<HttpResponseMessage> ReplaceAsync(Guid id, string etag, byte[] bytes, string key)
     {
@@ -125,13 +124,8 @@ public sealed class DocumentTests : SqlFixture
         var received = await EventAsync(IntegrationEvent.Received);
         await ProcessAsync(received);
         await ProcessAsync(received); // Simula uma queda após o commit SQL, antes do ACK.
-        var intermediate = await DetailsAsync(accepted.DocumentId);
-        Assert.That(intermediate.Document.ProcessingStatus, Is.EqualTo(ProcessingStatus.PendingSummary));
         var falselyFailed = await InScopeAsync(s => s.GetRequiredService<EventProcessor>().FailAsync(received, "reconciled_from_dlq", CancellationToken.None));
         Assert.That(falselyFailed, Is.False);
-        var processed = await EventAsync(IntegrationEvent.Processed);
-        await ProcessAsync(processed);
-        await ProcessAsync(processed);
         var after = await DetailsAsync(accepted.DocumentId);
         Assert.Multiple(() =>
         {
@@ -145,7 +139,64 @@ public sealed class DocumentTests : SqlFixture
             var db = services.GetRequiredService<FiscalDbContext>();
             return (await db.Summaries.CountAsync(), await db.Inbox.CountAsync(), await db.Outbox.CountAsync());
         });
-        Assert.That(counts, Is.EqualTo((1, 2, 2)));
+        Assert.That(counts, Is.EqualTo((1, 1, 1)));
+        Assert.That(await ProcessAsync(received with { EventId = Guid.NewGuid() }), Is.False);
+    }
+
+    [Test]
+    public async Task Concurrent_deliveries_complete_the_document_once()
+    {
+        var accepted = await ReceiveAsync();
+        var message = await EventAsync(IntegrationEvent.Received);
+        var applied = await Task.WhenAll(Enumerable.Range(0, 8).Select(_ => ProcessAsync(message)));
+        Assert.That(applied.Count(result => result), Is.EqualTo(1));
+        var details = await DetailsAsync(accepted.DocumentId);
+        Assert.That(details.Document.ProcessingStatus, Is.EqualTo(ProcessingStatus.Completed));
+        await InScopeAsync(async services =>
+        {
+            var db = services.GetRequiredService<FiscalDbContext>();
+            Assert.That(await db.Summaries.CountAsync(), Is.EqualTo(1));
+            Assert.That(await db.Inbox.CountAsync(), Is.EqualTo(1));
+            return true;
+        });
+    }
+
+    [Test]
+    public async Task Summary_failure_rolls_back_completion_and_inbox_then_can_retry()
+    {
+        var accepted = await ReceiveAsync();
+        var message = await EventAsync(IntegrationEvent.Received);
+        await InScopeAsync(async services =>
+        {
+            var db = services.GetRequiredService<FiscalDbContext>();
+            await db.Database.ExecuteSqlRawAsync("""
+                ALTER TABLE DocumentSummaries ADD CONSTRAINT RejectTestSummary
+                CHECK (TotalAmountInCents < 0);
+                """);
+            return true;
+        });
+        try
+        {
+            Assert.ThrowsAsync<DbUpdateException>(async () => await ProcessAsync(message));
+            await InScopeAsync(async services =>
+            {
+                var db = services.GetRequiredService<FiscalDbContext>();
+                Assert.That(await db.Summaries.CountAsync(), Is.Zero);
+                Assert.That(await db.Inbox.CountAsync(), Is.Zero);
+                Assert.That((await db.Processing.SingleAsync()).Status, Is.EqualTo(ProcessingStatus.PendingExtraction));
+                return true;
+            });
+        }
+        finally
+        {
+            await InScopeAsync(async services =>
+            {
+                await services.GetRequiredService<FiscalDbContext>().Database.ExecuteSqlRawAsync("ALTER TABLE DocumentSummaries DROP CONSTRAINT RejectTestSummary");
+                return true;
+            });
+        }
+        Assert.That(await ProcessAsync(message), Is.True);
+        Assert.That((await DetailsAsync(accepted.DocumentId)).Document.ProcessingStatus, Is.EqualTo(ProcessingStatus.Completed));
     }
 
     [Test]
@@ -251,7 +302,7 @@ public sealed class DocumentTests : SqlFixture
                 store.Add(document);
                 store.Add(processing);
                 store.Add(new UploadReceipt { DocumentId = document.Id, ContentHmac = parsed.ContentHmac, ReceivedAt = DateTimeOffset.UtcNow });
-                store.Add(IntegrationEvent.Create(IntegrationEvent.Received, document, processing, DateTimeOffset.UtcNow, "rollback-test"));
+                store.Add(IntegrationEvent.Create(document, processing, DateTimeOffset.UtcNow, "rollback-test"));
                 await db.SaveChangesAsync();
                 Assert.That(await db.Documents.AsNoTracking().CountAsync(), Is.EqualTo(1));
                 throw new InvalidOperationException("simulated_failure_after_writes_before_commit");

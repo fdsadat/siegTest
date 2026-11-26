@@ -96,14 +96,14 @@ public sealed class SqlWriteStore(FiscalDbContext db) : IWriteStore
         return db.Operations.SingleOrDefaultAsync(o => o.Scope == scope, ct);
     }
 
-    public Task<bool> HasInboxAsync(string consumer, Guid eventId, CancellationToken ct)
+    public Task<bool> HasInboxAsync(Guid eventId, CancellationToken ct)
     {
-        return db.Inbox.AnyAsync(i => i.Consumer == consumer && i.EventId == eventId, ct);
+        return db.Inbox.AnyAsync(i => i.EventId == eventId, ct);
     }
 
-    public Task<bool> HasFailureAsync(Guid processingId, string stage, CancellationToken ct)
+    public Task<bool> HasFailureAsync(Guid processingId, CancellationToken ct)
     {
-        return db.Failures.AnyAsync(f => f.ProcessingId == processingId && f.Stage == stage, ct);
+        return db.Failures.AnyAsync(f => f.ProcessingId == processingId, ct);
     }
 
     public async Task ClearSummaryAsync(Guid documentId, CancellationToken ct)
@@ -123,7 +123,7 @@ public sealed class SqlWriteStore(FiscalDbContext db) : IWriteStore
     {
         return exception.InnerException is SqlException sql
         && sql.Number is 2601 or 2627
-        && new[] { "UX_Documents_Identity", "UX_Receipts_Content", "UX_Outbox_RunEvent", "UX_Failures_RunStage" }
+        && new[] { "UX_Documents_Identity", "UX_Receipts_Content", "UX_Outbox_RunEvent", "UX_Failures_Run" }
             .Any(name => sql.Message.Contains(name, StringComparison.Ordinal));
     }
 }

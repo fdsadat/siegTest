@@ -44,7 +44,7 @@ public sealed class DocumentHandlers(IWriteStore store, IXmlDocuments xml, IFing
                     store.Add(document);
                     store.Add(processing);
                     store.Add(new UploadReceipt { DocumentId = document.Id, ContentHmac = parsed.ContentHmac, ReceivedAt = now });
-                    store.Add(IntegrationEvent.Create(IntegrationEvent.Received, document, processing, now, request.CorrelationId));
+                    store.Add(IntegrationEvent.Create(document, processing, now, request.CorrelationId));
                     return new Acceptance(document.Id, "Accepted", document.ContentRevision, processing.Status, true);
                 }, ct);
             }
@@ -79,7 +79,7 @@ public sealed class DocumentHandlers(IWriteStore store, IXmlDocuments xml, IFing
                 document.Replace(parsed, processing, clock.GetUtcNow());
                 await store.ClearSummaryAsync(document.Id, ct);
                 store.Add(new UploadReceipt { DocumentId = document.Id, ContentHmac = parsed.ContentHmac, ReceivedAt = clock.GetUtcNow() });
-                store.Add(IntegrationEvent.Create(IntegrationEvent.Received, document, processing, clock.GetUtcNow(), request.CorrelationId));
+                store.Add(IntegrationEvent.Create(document, processing, clock.GetUtcNow(), request.CorrelationId));
                 // O próximo ETag é gerado pelo SQL Server; consulte o endereço de Location via GET após a aceitação.
                 return new MutationResult(202, new { document.Id, document.ContentRevision, processing.ProcessingId }, Location: $"/api/v1/documents/{document.Id}");
             }, ct);
@@ -114,7 +114,7 @@ public sealed class DocumentHandlers(IWriteStore store, IXmlDocuments xml, IFing
 
             processing.Restart(document.ContentRevision, clock.GetUtcNow());
             await store.ClearSummaryAsync(document.Id, ct);
-            store.Add(IntegrationEvent.Create(IntegrationEvent.Received, document, processing, clock.GetUtcNow(), request.CorrelationId));
+            store.Add(IntegrationEvent.Create(document, processing, clock.GetUtcNow(), request.CorrelationId));
             return new MutationResult(202, new { document.Id, processing.ProcessingId }, Location: $"/api/v1/documents/{document.Id}");
         }, ct);
     }

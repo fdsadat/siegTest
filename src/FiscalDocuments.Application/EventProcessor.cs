@@ -7,20 +7,10 @@ public sealed class EventProcessor(IWriteStore store, IXmlDocuments xml, TimePro
     public async Task<bool> ProcessAsync(IntegrationEvent message, CancellationToken ct)
     {
         Validate(message);
-        ExtractedData? extracted = null;
-        if (message.EventType == IntegrationEvent.Received)
-        {
-            var snapshot = await store.DocumentAsync(message.DocumentId, ct);
-            if (snapshot is not null && !snapshot.IsDeleted && snapshot.ContentRevision == message.ContentRevision)
-            {
-                extracted = xml.ExtractSanitized(snapshot.SanitizedXml);
-            }
-        }
         return await store.TransactionAsync(async () =>
         {
-            var consumer = Consumer(message.EventType);
             await store.LockAsync($"document:{message.DocumentId}", ct);
-            if (await store.HasInboxAsync(consumer, message.EventId, ct))
+            if (await store.HasInboxAsync(message.EventId, ct))
             {
                 return false;
             }
@@ -29,13 +19,13 @@ public sealed class EventProcessor(IWriteStore store, IXmlDocuments xml, TimePro
             var now = clock.GetUtcNow();
             if (document is null || document.IsDeleted)
             {
-                Inbox(consumer, message.EventId, now);
+                Inbox(message.EventId, now);
                 return false;
             }
             var processing = await store.ProcessingAsync(document.Id, ct);
-            if (!processing.Matches(message.ContentRevision, message.ProcessingId))
+            if (!processing.Matches(message.ContentRevision, message.ProcessingId) || processing.Status == ProcessingStatus.Completed)
             {
-                Inbox(consumer, message.EventId, now);
+                Inbox(message.EventId, now);
                 return false;
             }
             if (processing.Status == ProcessingStatus.Failed)
@@ -43,39 +33,18 @@ public sealed class EventProcessor(IWriteStore store, IXmlDocuments xml, TimePro
                 throw new PermanentProcessingException(processing.ErrorCode ?? "processing_failed");
             }
 
-            if (message.EventType == IntegrationEvent.Received && processing.Status == ProcessingStatus.PendingExtraction)
-            {
-                if (extracted is null)
-                {
-                    throw new PermanentProcessingException("missing_extraction_snapshot");
-                }
-
-                processing.Extract(extracted.TotalAmount, extracted.Competence, now);
-                store.Add(IntegrationEvent.Create(IntegrationEvent.Processed, document, processing, now, message.CorrelationId));
-            }
-            else if (message.EventType == IntegrationEvent.Processed && processing.Status == ProcessingStatus.PendingSummary)
-            {
-                if (processing.TotalAmount is null || processing.Competence is null)
-                {
-                    throw new PermanentProcessingException("missing_extraction");
-                }
-
-                store.Add(new DocumentSummary { DocumentId = document.Id, ProcessingId = processing.ProcessingId,
-                    Competence = processing.Competence, TotalAmountInCents = checked((long)(processing.TotalAmount.Value * 100m)), ProcessedAt = now });
-                processing.Complete(now);
-            }
-            else if (message.EventType == IntegrationEvent.Processed && processing.Status == ProcessingStatus.PendingExtraction)
-            {
-                throw new InvalidOperationException("extraction_not_ready");
-            }
-
-            Inbox(consumer, message.EventId, now);
+            var extracted = xml.ExtractSanitized(document.SanitizedXml);
+            store.Add(new DocumentSummary { DocumentId = document.Id, ProcessingId = processing.ProcessingId,
+                Competence = extracted.Competence, TotalAmountInCents = checked((long)(extracted.TotalAmount * 100m)), ProcessedAt = now });
+            processing.Complete(now);
+            Inbox(message.EventId, now);
             return true;
         }, ct);
     }
 
     public Task<bool> FailAsync(IntegrationEvent message, string errorCode, CancellationToken ct)
     {
+        Validate(message);
         return store.TransactionAsync(async () =>
         {
             await store.LockAsync($"document:{message.DocumentId}", ct);
@@ -91,13 +60,8 @@ public sealed class EventProcessor(IWriteStore store, IXmlDocuments xml, TimePro
                 return false;
             }
             // Uma entrega pode chegar à DLQ após o commit da transação de negócio,
-            // caso seu ACK se perca. A reconciliação não deve marcar como falha uma etapa já concluída.
-            if (await store.HasInboxAsync(Consumer(message.EventType), message.EventId, ct))
-            {
-                return false;
-            }
-
-            if (message.EventType == IntegrationEvent.Received && processing.Status == ProcessingStatus.PendingSummary)
+            // caso seu ACK se perca. A reconciliação não deve marcar como falha um processamento já concluído.
+            if (await store.HasInboxAsync(message.EventId, ct))
             {
                 return false;
             }
@@ -107,14 +71,13 @@ public sealed class EventProcessor(IWriteStore store, IXmlDocuments xml, TimePro
                 processing.Fail(errorCode, clock.GetUtcNow());
             }
 
-            if (!await store.HasFailureAsync(message.ProcessingId, message.EventType, ct))
+            if (!await store.HasFailureAsync(message.ProcessingId, ct))
             {
                 store.Add(new ProcessingFailure
                 {
                     DocumentId = document.Id,
                     ProcessingId = message.ProcessingId,
                     ContentRevision = message.ContentRevision,
-                    Stage = message.EventType,
                     ErrorCode = errorCode,
                     FailedAt = clock.GetUtcNow()
                 });
@@ -124,25 +87,18 @@ public sealed class EventProcessor(IWriteStore store, IXmlDocuments xml, TimePro
         }, ct);
     }
 
-    private void Inbox(string consumer, Guid eventId, DateTimeOffset now)
+    private void Inbox(Guid eventId, DateTimeOffset now)
     {
         store.Add(new InboxMessage
-        { Consumer = consumer, EventId = eventId, CompletedAt = now });
-    }
-
-    public static string Consumer(string eventType)
-    {
-        return eventType switch
-        {
-            IntegrationEvent.Received => "extraction",
-            IntegrationEvent.Processed => "summary",
-            _ => throw new PermanentProcessingException("unsupported_event")
-        };
+        { EventId = eventId, CompletedAt = now });
     }
 
     public static void Validate(IntegrationEvent message)
     {
-        _ = Consumer(message.EventType);
+        if (message.EventType != IntegrationEvent.Received)
+        {
+            throw new PermanentProcessingException("unsupported_event");
+        }
         if (message.EventId == Guid.Empty || message.DocumentId == Guid.Empty || message.ProcessingId == Guid.Empty || message.ContentRevision < 1)
         {
             throw new PermanentProcessingException("invalid_event");

@@ -1,5 +1,4 @@
 using System.Text;
-using System.Text.Json;
 using FiscalDocuments.Application;
 using Microsoft.Extensions.Options;
 using RabbitMQ.Client;
@@ -22,10 +21,7 @@ public sealed class RabbitBroker(IOptions<RabbitOptions> options) : IAsyncDispos
     private IConnection? connection;
     private IChannel? publisher;
     public bool IsConnected => connection?.IsOpen == true;
-    public string Queue(string type)
-    {
-        return topologyPrefix + "." + EventProcessor.Consumer(type);
-    }
+    public string ProcessingQueue => topologyPrefix + ".processing";
 
     private static string ValidatePrefix(string prefix)
     {
@@ -125,34 +121,26 @@ public sealed class RabbitBroker(IOptions<RabbitOptions> options) : IAsyncDispos
         finally { publishGate.Release(); }
     }
 
-    public Task PublishEventAsync(IntegrationEvent message, CancellationToken ct)
-    {
-        return PublishAsync(JsonSerializer.Serialize(message, JsonDefaults.Options), message.EventType, EventsExchange, 0, null, ct);
-    }
-
     public async Task DeclareAsync(IChannel channel, CancellationToken ct)
     {
         await channel.ExchangeDeclareAsync(EventsExchange, ExchangeType.Direct, true, false, cancellationToken: ct);
         await channel.ExchangeDeclareAsync(RetryExchange, ExchangeType.Direct, true, false, cancellationToken: ct);
         await channel.ExchangeDeclareAsync(DeadExchange, ExchangeType.Direct, true, false, cancellationToken: ct);
-        foreach (var type in new[] { IntegrationEvent.Received, IntegrationEvent.Processed })
+        var queue = ProcessingQueue;
+        var args = QuorumArgs(DeadExchange, queue);
+        args["x-delivery-limit"] = 20;
+        await channel.QueueDeclareAsync(queue, true, false, false, args, cancellationToken: ct);
+        await channel.QueueBindAsync(queue, EventsExchange, IntegrationEvent.Received, cancellationToken: ct);
+        await channel.QueueDeclareAsync(queue + ".dead", true, false, false,
+            new Dictionary<string, object?> { ["x-queue-type"] = "quorum", ["x-max-length"] = 10000, ["x-overflow"] = "reject-publish" }, cancellationToken: ct);
+        await channel.QueueBindAsync(queue + ".dead", DeadExchange, queue, cancellationToken: ct);
+        for (var i = 0; i < RetryDelays.Length; i++)
         {
-            var queue = Queue(type);
-            var args = QuorumArgs(DeadExchange, queue);
-            args["x-delivery-limit"] = 20;
-            await channel.QueueDeclareAsync(queue, true, false, false, args, cancellationToken: ct);
-            await channel.QueueBindAsync(queue, EventsExchange, type, cancellationToken: ct);
-            await channel.QueueDeclareAsync(queue + ".dead", true, false, false,
-                new Dictionary<string, object?> { ["x-queue-type"] = "quorum", ["x-max-length"] = 10000, ["x-overflow"] = "reject-publish" }, cancellationToken: ct);
-            await channel.QueueBindAsync(queue + ".dead", DeadExchange, queue, cancellationToken: ct);
-            for (var i = 0; i < RetryDelays.Length; i++)
-            {
-                var retry = queue + ".retry." + (i + 1);
-                var retryArgs = QuorumArgs(EventsExchange, type);
-                retryArgs["x-message-ttl"] = RetryDelays[i];
-                await channel.QueueDeclareAsync(retry, true, false, false, retryArgs, cancellationToken: ct);
-                await channel.QueueBindAsync(retry, RetryExchange, retry, cancellationToken: ct);
-            }
+            var retry = queue + ".retry." + (i + 1);
+            var retryArgs = QuorumArgs(EventsExchange, IntegrationEvent.Received);
+            retryArgs["x-message-ttl"] = RetryDelays[i];
+            await channel.QueueDeclareAsync(retry, true, false, false, retryArgs, cancellationToken: ct);
+            await channel.QueueBindAsync(retry, RetryExchange, retry, cancellationToken: ct);
         }
     }
 

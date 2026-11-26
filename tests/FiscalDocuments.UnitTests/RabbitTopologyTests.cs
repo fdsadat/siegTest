@@ -9,7 +9,7 @@ namespace FiscalDocuments.UnitTests;
 public sealed class RabbitTopologyTests
 {
     [Test]
-    public async Task Default_topology_preserves_existing_application_names()
+    public async Task Default_topology_uses_one_processing_queue()
     {
         await using var broker = new RabbitBroker(Options.Create(new RabbitOptions()));
         Assert.Multiple(() =>
@@ -17,8 +17,7 @@ public sealed class RabbitTopologyTests
             Assert.That(broker.EventsExchange, Is.EqualTo("fiscal.events"));
             Assert.That(broker.RetryExchange, Is.EqualTo("fiscal.retry"));
             Assert.That(broker.DeadExchange, Is.EqualTo("fiscal.dead"));
-            Assert.That(broker.Queue(IntegrationEvent.Received), Is.EqualTo("fiscal.extraction"));
-            Assert.That(broker.Queue(IntegrationEvent.Processed), Is.EqualTo("fiscal.summary"));
+            Assert.That(broker.ProcessingQueue, Is.EqualTo("fiscal.processing"));
         });
     }
 
@@ -32,8 +31,8 @@ public sealed class RabbitTopologyTests
             Assert.That(first.EventsExchange, Is.Not.EqualTo(second.EventsExchange));
             Assert.That(first.RetryExchange, Is.Not.EqualTo(second.RetryExchange));
             Assert.That(first.DeadExchange, Is.Not.EqualTo(second.DeadExchange));
-            Assert.That(first.Queue(IntegrationEvent.Received) + ".retry.1", Is.Not.EqualTo(second.Queue(IntegrationEvent.Received) + ".retry.1"));
-            Assert.That(first.Queue(IntegrationEvent.Processed) + ".dead", Is.Not.EqualTo(second.Queue(IntegrationEvent.Processed) + ".dead"));
+            Assert.That(first.ProcessingQueue + ".retry.1", Is.Not.EqualTo(second.ProcessingQueue + ".retry.1"));
+            Assert.That(first.ProcessingQueue + ".dead", Is.Not.EqualTo(second.ProcessingQueue + ".dead"));
         });
     }
 

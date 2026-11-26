@@ -27,7 +27,7 @@ public static class InfrastructureServices
     public static IServiceCollection AddProcessingWorkers(this IServiceCollection services)
     {
         services.AddHostedService<OutboxDispatcher>();
-        services.AddHostedService<RabbitConsumers>();
+        services.AddHostedService<RabbitConsumer>();
         return services;
     }
     public static async Task MigrateDatabaseAsync(this IServiceProvider services, CancellationToken ct = default)

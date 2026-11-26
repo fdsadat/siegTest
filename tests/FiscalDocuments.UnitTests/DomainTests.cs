@@ -20,9 +20,7 @@ public sealed class DomainTests
         var document = FiscalDocument.Receive(Xml(), now);
         var processing = DocumentProcessing.Start(document, now);
         Assert.That(() => document.Replace(Xml("B"), processing, now), Throws.TypeOf<DomainException>());
-        processing.Extract(10.25m, "2026-11", now);
         Assert.That(processing.IsTerminal, Is.False);
-        Assert.That(() => document.Replace(Xml("B"), processing, now), Throws.TypeOf<DomainException>());
         processing.Complete(now);
         var oldRun = processing.ProcessingId;
         document.Replace(Xml("B"), processing, now);
@@ -32,7 +30,7 @@ public sealed class DomainTests
             Assert.That(document.ContentRevision, Is.EqualTo(2));
             Assert.That(processing.Status, Is.EqualTo(ProcessingStatus.PendingExtraction));
             Assert.That(processing.ProcessingId, Is.Not.EqualTo(oldRun));
-            Assert.That(processing.TotalAmount, Is.Null);
+            Assert.That(processing.ErrorCode, Is.Null);
             Assert.That(processing.Matches(1, oldRun), Is.False);
         });
     }

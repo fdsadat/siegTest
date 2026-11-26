@@ -7,8 +7,6 @@ public sealed class DocumentProcessing
     public Guid ProcessingId { get; private set; }
     public int ContentRevision { get; private set; }
     public ProcessingStatus Status { get; private set; }
-    public decimal? TotalAmount { get; private set; }
-    public string? Competence { get; private set; }
     public string? ErrorCode { get; private set; }
     public DateTimeOffset UpdatedAt { get; private set; }
     public bool IsTerminal => Status is ProcessingStatus.Completed or ProcessingStatus.Failed;
@@ -30,28 +28,13 @@ public sealed class DocumentProcessing
         ProcessingId = Guid.NewGuid();
         ContentRevision = revision;
         Status = ProcessingStatus.PendingExtraction;
-        TotalAmount = null;
-        Competence = null;
         ErrorCode = null;
-        UpdatedAt = now;
-    }
-
-    public void Extract(decimal totalAmount, string competence, DateTimeOffset now)
-    {
-        if (Status != ProcessingStatus.PendingExtraction)
-        {
-            throw new DomainException("invalid_processing_transition");
-        }
-
-        TotalAmount = totalAmount;
-        Competence = competence;
-        Status = ProcessingStatus.PendingSummary;
         UpdatedAt = now;
     }
 
     public void Complete(DateTimeOffset now)
     {
-        if (Status != ProcessingStatus.PendingSummary)
+        if (Status != ProcessingStatus.PendingExtraction)
         {
             throw new DomainException("invalid_processing_transition");
         }

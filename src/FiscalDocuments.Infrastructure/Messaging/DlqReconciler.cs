@@ -8,7 +8,7 @@ namespace FiscalDocuments.Infrastructure.Messaging;
 public static class DlqReconciler
 {
     /// <summary>
-    /// Consulta as filas de falhas(DLQ) e atualiza o banco com segurança. Só confirma a retirada da mensagem após concluir a operação no SQL.
+    /// Consulta a fila de falhas (DLQ) e atualiza o banco com segurança. Só confirma a retirada da mensagem após concluir a operação no SQL.
     /// </summary>
     /// <param name="services"></param>
     /// <param name="ct"></param>
@@ -19,30 +19,27 @@ public static class DlqReconciler
         var broker = services.GetRequiredService<RabbitBroker>();
         await using var channel = await broker.ConsumerChannelAsync(ct);
         var count = 0;
-        foreach (var eventType in new[] { IntegrationEvent.Received, IntegrationEvent.Processed })
+        for (var i = 0; i < 100; i++)
         {
-            for (var i = 0; i < 100; i++)
+            var delivery = await channel.BasicGetAsync(broker.ProcessingQueue + ".dead", false, ct);
+            if (delivery is null)
             {
-                var delivery = await channel.BasicGetAsync(broker.Queue(eventType) + ".dead", false, ct);
-                if (delivery is null)
-                {
-                    break;
-                }
+                break;
+            }
 
-                try
-                {
-                    var message = JsonSerializer.Deserialize<IntegrationEvent>(delivery.Body.Span, JsonDefaults.Options) ?? throw new PermanentProcessingException("invalid_event");
-                    EventProcessor.Validate(message);
-                    await using var scope = services.CreateAsyncScope();
-                    await scope.ServiceProvider.GetRequiredService<EventProcessor>().FailAsync(message, "reconciled_from_dlq", ct);
-                    await channel.BasicAckAsync(delivery.DeliveryTag, false, ct);
-                    count++;
-                }
-                catch
-                {
-                    await channel.BasicNackAsync(delivery.DeliveryTag, false, true, ct);
-                    throw new InvalidOperationException("DLQ item could not be reconciled; delivery retained. Inspect safely using broker administration.");
-                }
+            try
+            {
+                var message = JsonSerializer.Deserialize<IntegrationEvent>(delivery.Body.Span, JsonDefaults.Options) ?? throw new PermanentProcessingException("invalid_event");
+                EventProcessor.Validate(message);
+                await using var scope = services.CreateAsyncScope();
+                await scope.ServiceProvider.GetRequiredService<EventProcessor>().FailAsync(message, "reconciled_from_dlq", ct);
+                await channel.BasicAckAsync(delivery.DeliveryTag, false, ct);
+                count++;
+            }
+            catch
+            {
+                await channel.BasicNackAsync(delivery.DeliveryTag, false, true, ct);
+                throw new InvalidOperationException("DLQ item could not be reconciled; delivery retained. Inspect safely using broker administration.");
             }
         }
         return count;

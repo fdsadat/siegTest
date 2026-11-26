@@ -56,13 +56,12 @@ namespace FiscalDocuments.Infrastructure.Persistence.Migrations
                 name: "InboxMessages",
                 columns: table => new
                 {
-                    Consumer = table.Column<string>(type: "varchar(30)", unicode: false, maxLength: 30, nullable: false),
                     EventId = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
                     CompletedAt = table.Column<DateTimeOffset>(type: "datetimeoffset", nullable: false)
                 },
                 constraints: table =>
                 {
-                    table.PrimaryKey("PK_InboxMessages", x => new { x.Consumer, x.EventId });
+                    table.PrimaryKey("PK_InboxMessages", x => x.EventId);
                 });
 
             migrationBuilder.CreateTable(
@@ -93,8 +92,6 @@ namespace FiscalDocuments.Infrastructure.Persistence.Migrations
                     ProcessingId = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
                     ContentRevision = table.Column<int>(type: "int", nullable: false),
                     Status = table.Column<int>(type: "int", nullable: false),
-                    TotalAmount = table.Column<decimal>(type: "decimal(18,2)", precision: 18, scale: 2, nullable: true),
-                    Competence = table.Column<string>(type: "varchar(7)", unicode: false, maxLength: 7, nullable: true),
                     ErrorCode = table.Column<string>(type: "varchar(80)", unicode: false, maxLength: 80, nullable: true),
                     UpdatedAt = table.Column<DateTimeOffset>(type: "datetimeoffset", nullable: false)
                 },
@@ -138,7 +135,6 @@ namespace FiscalDocuments.Infrastructure.Persistence.Migrations
                     DocumentId = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
                     ProcessingId = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
                     ContentRevision = table.Column<int>(type: "int", nullable: false),
-                    Stage = table.Column<string>(type: "varchar(60)", unicode: false, maxLength: 60, nullable: false),
                     ErrorCode = table.Column<string>(type: "varchar(80)", unicode: false, maxLength: 80, nullable: false),
                     FailedAt = table.Column<DateTimeOffset>(type: "datetimeoffset", nullable: false)
                 },
@@ -222,9 +218,9 @@ namespace FiscalDocuments.Infrastructure.Persistence.Migrations
                 column: "DocumentId");
 
             migrationBuilder.CreateIndex(
-                name: "UX_Failures_RunStage",
+                name: "UX_Failures_Run",
                 table: "ProcessingFailures",
-                columns: new[] { "ProcessingId", "Stage" },
+                column: "ProcessingId",
                 unique: true);
 
             migrationBuilder.CreateIndex(

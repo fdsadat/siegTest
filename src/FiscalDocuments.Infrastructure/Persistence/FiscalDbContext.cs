@@ -38,8 +38,6 @@ public sealed class FiscalDbContext(DbContextOptions<FiscalDbContext> options) :
         processing.HasKey(p => p.DocumentId);
         processing.Property(p => p.DocumentId).ValueGeneratedNever();
         processing.Ignore(p => p.IsTerminal);
-        processing.Property(p => p.TotalAmount).HasPrecision(18, 2);
-        processing.Property(p => p.Competence).HasMaxLength(7).IsUnicode(false);
         processing.Property(p => p.ErrorCode).HasMaxLength(80).IsUnicode(false);
         processing.HasIndex(p => p.Status);
         processing.HasOne<FiscalDocument>().WithOne().HasForeignKey<DocumentProcessing>(p => p.DocumentId).OnDelete(DeleteBehavior.Restrict);
@@ -63,8 +61,8 @@ public sealed class FiscalDbContext(DbContextOptions<FiscalDbContext> options) :
 
         var inbox = model.Entity<InboxMessage>();
         inbox.ToTable("InboxMessages");
-        inbox.HasKey(i => new { i.Consumer, i.EventId });
-        inbox.Property(i => i.Consumer).HasMaxLength(30).IsUnicode(false);
+        inbox.HasKey(i => i.EventId);
+        inbox.Property(i => i.EventId).ValueGeneratedNever();
 
         var operation = model.Entity<IdempotentOperation>();
         operation.ToTable("IdempotentOperations");
@@ -87,9 +85,8 @@ public sealed class FiscalDbContext(DbContextOptions<FiscalDbContext> options) :
         failure.ToTable("ProcessingFailures");
         failure.HasKey(f => f.Id);
         failure.Property(f => f.Id).ValueGeneratedNever();
-        failure.Property(f => f.Stage).HasMaxLength(60).IsUnicode(false);
         failure.Property(f => f.ErrorCode).HasMaxLength(80).IsUnicode(false);
-        failure.HasIndex(f => new { f.ProcessingId, f.Stage }).IsUnique().HasDatabaseName("UX_Failures_RunStage");
+        failure.HasIndex(f => f.ProcessingId).IsUnique().HasDatabaseName("UX_Failures_Run");
         failure.HasOne<FiscalDocument>().WithMany().HasForeignKey(f => f.DocumentId).OnDelete(DeleteBehavior.Restrict);
     }
 }

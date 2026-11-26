@@ -56,7 +56,7 @@ Use `Ctrl+C` em cada terminal para parar. O worker precisa estar em execução p
 
 Após a inicialização local, abra `FiscalDocuments.sln`, configure múltiplos projetos de inicialização e escolha **Start** para `FiscalDocuments.Api` e `FiscalDocuments.Worker` (demais: **None**). Selecione **Local Debug** para ambos e pressione **F5**. Swagger: http://localhost:54392/swagger.
 
-Breakpoints úteis: `DocumentsController.Upload`, `OutboxDispatcher.DispatchOneAsync`, `RabbitConsumers.ConsumeAsync` e `EventProcessor.ProcessAsync`. Use um documento com identidade nova para percorrer o fluxo; conteúdo já recebido não inicia outro processamento. Execute somente o worker que deseja depurar para evitar que outra instância consuma suas mensagens. Pausas longas podem expirar leases/conexões e provocar retries/reentregas.
+Breakpoints úteis: `DocumentsController.Upload`, `OutboxDispatcher.DispatchOneAsync`, `RabbitConsumer.ConsumeAsync` e `EventProcessor.ProcessAsync`. Use um documento com identidade nova para percorrer o fluxo; conteúdo já recebido não inicia outro processamento. Execute somente o worker que deseja depurar para evitar que outra instância consuma suas mensagens. Pausas longas podem expirar leases/conexões e provocar retries/reentregas.
 
 ## Gerar token de teste
 
@@ -103,11 +103,8 @@ flowchart LR
   API[API / MediatR] -->|transação por arquivo| SQL[(Documento + recibo + outbox)]
   SQL --> Dispatcher[Publicador do outbox]
   Dispatcher --> Received[RabbitMQ: DocumentoRecebido]
-  Received --> Extractor[Consumidor de extração]
-  Extractor -->|resultado + inbox + outbox| SQL
-  Dispatcher --> Processed[RabbitMQ: DocumentoProcessado]
-  Processed --> Summary[Consumidor de resumo]
-  Summary -->|resumo + inbox + Completed| SQL
+  Received --> Consumer[Consumidor: extração e resumo]
+  Consumer -->|resumo + inbox + Completed na mesma transação| SQL
 ```
 
 | Projeto | Responsabilidade |
@@ -116,11 +113,11 @@ flowchart LR
 | Application | Comandos/consultas MediatR, validação, casos de uso, contratos e portas de persistência. |
 | Infrastructure | EF Core/SQL Server, parsers, HMAC, RabbitMQ, outbox e inbox. |
 | Api | HTTP, JWT, autorização, limites, tratamento de erros e Swagger. |
-| Worker | Um host para publicador e os dois consumidores; comando operacional de reconciliação. |
+| Worker | Um host para publicador e um consumidor de extração e resumo; comando operacional de reconciliação. |
 
 CQRS usa o mesmo banco: comandos passam pelos agregados e pela unidade de trabalho; consultas usam projeções EF Core `AsNoTracking` e paginação por cursor. Não há um segundo banco de leitura nem histórico dos XMLs.
 
-Estados: `PendingExtraction → PendingSummary → Completed`. Uma falha permanente ou o esgotamento dos retries leva a `Failed`. Falhas transitórias continuam pendentes. `Completed` só ocorre após o resumo persistido pelo segundo consumidor.
+Estados: `PendingExtraction → Completed`. Uma falha permanente ou o esgotamento dos retries leva a `Failed`. Falhas transitórias continuam pendentes. O consumidor extrai os dados do XML sanitizado e grava resumo, conclusão e inbox na mesma transação SQL; somente depois envia ACK. Não há evento ou estado intermediário entre extração e resumo.
 
 ## Contratos HTTP
 
@@ -195,7 +192,7 @@ As versões e os modelos da tabela descrevem os exemplos de referência. O parse
 
 São mantidas as verificações de formato da identidade fiscal (prefixo e quantidade de dígitos), CNPJ/CPF, data com fuso horário explícito e valor monetário não negativo com até duas casas decimais, dentro do limite da persistência. O campo de estado aceita até dois caracteres, conforme o tamanho da coluna no banco, sem conferir a lista de UFs. Na NFSe, `cMun` é utilizado apenas para obter a UF pelos dois primeiros caracteres, sem validar o tamanho ou os demais caracteres do código de município; se o prefixo não for reconhecido, o estado fica vazio. Campos de entrada necessários ausentes, vazios ou ambíguos são rejeitados.
 
-O segundo consumidor calcula `competence` (`AAAA-MM`) e `totalAmountInCents` com decimal, sem ponto flutuante. DTD, entidades externas, campos ambíguos, profundidade acima de 64, tamanhos excessivos e valores monetários inválidos são rejeitados. Não há consulta fiscal externa, validação XSD, cálculo de dígito verificador ou validação de assinatura.
+O consumidor calcula `competence` (`AAAA-MM`) e `totalAmountInCents` com decimal, sem ponto flutuante. DTD, entidades externas, campos ambíguos, profundidade acima de 64, tamanhos excessivos e valores monetários inválidos são rejeitados. Não há consulta fiscal externa, validação XSD, cálculo de dígito verificador ou validação de assinatura.
 
 Antes da persistência, o parser cria uma projeção XML interna (`FiscalDocument schema=1`) com tipo, emitente totalmente mascarado, emissão, UF e total. Texto livre, destinatários, chaves completas, assinatura/certificados e campos não utilizados são descartados. Esse XML interno tem contrato próprio para reprocessamento e não representa o arquivo fiscal original assinado.
 
@@ -205,13 +202,15 @@ Uploads são lidos por `MultipartReader`, sem buffering de arquivos originais em
 
 ## Confiabilidade e reconciliação
 
+O worker hospeda `OutboxDispatcher` e `RabbitConsumer`. Há um único evento, `document.received.v1`, e uma fila de trabalho `<prefixo>.processing` (padrão `fiscal.processing`). As três filas `.retry.1`, `.retry.2`, `.retry.3` e a fila `.dead` são auxiliares e não possuem consumidores adicionais. Mensagens contêm identificadores e metadados de controle, sem XML. O inbox identifica entregas por `EventId`; falhas são únicas por `ProcessingId`.
+
 - Outbox reserva uma mensagem por lease de dois minutos; falha de publicação deixa a linha pendente com backoff exponencial limitado a cinco minutos. Lease expirado permite recuperação após queda.
 - Publicação persistente, `mandatory` e publisher confirms. Somente confirmação válida permite marcar `PublishedAt`.
 - Consumidores usam ACK manual após commit SQL. A combinação inbox + unicidade do resultado impede repetir efeitos após queda entre commit e ACK.
 - Em falha transitória, três retries passam por filas com TTL de 5, 30 e 120 segundos. A publicação na fila de retry é confirmada antes de ACK da mensagem original.
 - Falha definitiva é registrada em SQL e encaminhada à DLQ com confirmação. Se SQL, confirmação ou transferência falhar, não há ACK de sucesso; a entrega volta ao broker.
 - Filas quorum duráveis têm limite e dead lettering `at-least-once` com `reject-publish`. A DLQ também recebe mensagens que excedam o limite de entregas do broker.
-- Cada commit de consumidor, substituição, exclusão e replay usa a mesma coordenação transacional por documento (`sp_getapplock`). Transformação do XML ocorre antes dessa transação. Revisão, execução e exclusão são conferidas novamente antes de gravar.
+- Cada commit de consumidor, substituição, exclusão e replay usa a mesma coordenação transacional por documento (`sp_getapplock`). A validação e sanitização do upload ocorrem antes da transação de recebimento ou substituição. No consumidor, a extração do XML sanitizado e a gravação do resumo ocorrem dentro da transação, após conferir revisão, execução e exclusão sob o bloqueio.
 - As mensagens contêm apenas IDs, revisão, execução, tipo, data e correlação. Reentrega é esperada; não há promessa de entrega exatamente uma vez no broker.
 
 Após investigar/corrigir a causa, reconcilie a DLQ manualmente:
@@ -220,7 +219,7 @@ Após investigar/corrigir a causa, reconcilie a DLQ manualmente:
 dotnet run --project src/FiscalDocuments.Worker --launch-profile "Local Debug" -- --reconcile-dlq
 ```
 
-O comando lê até 100 entregas por DLQ, registra a falha atual em SQL e só então confirma a entrega. Mensagens de execuções antigas, documentos excluídos ou já concluídos não alteram o estado atual. Envelope inválido fica retido para inspeção segura pelo operador. A falha permanece em `ProcessingFailures` para diagnóstico.
+O comando lê até 100 entregas da DLQ de processamento, registra a falha atual em SQL e só então confirma a entrega. Mensagens de execuções antigas, documentos excluídos ou já concluídos não alteram o estado atual. Envelope inválido fica retido para inspeção segura pelo operador. A falha permanece em `ProcessingFailures` para diagnóstico.
 
 Então reprocesse a execução atual:
 

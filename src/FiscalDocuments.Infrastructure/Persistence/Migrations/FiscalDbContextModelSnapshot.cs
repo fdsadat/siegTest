@@ -89,18 +89,13 @@ namespace FiscalDocuments.Infrastructure.Persistence.Migrations
 
             modelBuilder.Entity("FiscalDocuments.Application.InboxMessage", b =>
                 {
-                    b.Property<string>("Consumer")
-                        .HasMaxLength(30)
-                        .IsUnicode(false)
-                        .HasColumnType("varchar(30)");
-
                     b.Property<Guid>("EventId")
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<DateTimeOffset>("CompletedAt")
                         .HasColumnType("datetimeoffset");
 
-                    b.HasKey("Consumer", "EventId");
+                    b.HasKey("EventId");
 
                     b.ToTable("InboxMessages", (string)null);
                 });
@@ -176,19 +171,13 @@ namespace FiscalDocuments.Infrastructure.Persistence.Migrations
                     b.Property<Guid>("ProcessingId")
                         .HasColumnType("uniqueidentifier");
 
-                    b.Property<string>("Stage")
-                        .IsRequired()
-                        .HasMaxLength(60)
-                        .IsUnicode(false)
-                        .HasColumnType("varchar(60)");
-
                     b.HasKey("Id");
 
                     b.HasIndex("DocumentId");
 
-                    b.HasIndex("ProcessingId", "Stage")
+                    b.HasIndex("ProcessingId")
                         .IsUnique()
-                        .HasDatabaseName("UX_Failures_RunStage");
+                        .HasDatabaseName("UX_Failures_Run");
 
                     b.ToTable("ProcessingFailures", (string)null);
                 });
@@ -224,11 +213,6 @@ namespace FiscalDocuments.Infrastructure.Persistence.Migrations
                     b.Property<Guid>("DocumentId")
                         .HasColumnType("uniqueidentifier");
 
-                    b.Property<string>("Competence")
-                        .HasMaxLength(7)
-                        .IsUnicode(false)
-                        .HasColumnType("varchar(7)");
-
                     b.Property<int>("ContentRevision")
                         .HasColumnType("int");
 
@@ -242,10 +226,6 @@ namespace FiscalDocuments.Infrastructure.Persistence.Migrations
 
                     b.Property<int>("Status")
                         .HasColumnType("int");
-
-                    b.Property<decimal?>("TotalAmount")
-                        .HasPrecision(18, 2)
-                        .HasColumnType("decimal(18,2)");
 
                     b.Property<DateTimeOffset>("UpdatedAt")
                         .HasColumnType("datetimeoffset");

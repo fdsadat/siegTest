@@ -71,17 +71,14 @@ public sealed class RabbitTests : SqlFixture
             using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(30));
             var connection = await cleanupBroker.ConnectionAsync(deadline.Token);
             await using var channel = await connection.CreateChannelAsync(cancellationToken: deadline.Token);
-            foreach (var type in new[] { IntegrationEvent.Received, IntegrationEvent.Processed })
+            var queue = cleanupBroker.ProcessingQueue;
+            for (var i = 1; i <= RabbitBroker.RetryDelays.Length; i++)
             {
-                var queue = cleanupBroker.Queue(type);
-                for (var i = 1; i <= RabbitBroker.RetryDelays.Length; i++)
-                {
-                    await channel.QueueDeleteAsync(queue + ".retry." + i, false, false, cancellationToken: deadline.Token);
-                }
-
-                await channel.QueueDeleteAsync(queue, false, false, cancellationToken: deadline.Token);
-                await channel.QueueDeleteAsync(queue + ".dead", false, false, cancellationToken: deadline.Token);
+                await channel.QueueDeleteAsync(queue + ".retry." + i, false, false, cancellationToken: deadline.Token);
             }
+
+            await channel.QueueDeleteAsync(queue, false, false, cancellationToken: deadline.Token);
+            await channel.QueueDeleteAsync(queue + ".dead", false, false, cancellationToken: deadline.Token);
             foreach (var exchange in new[] { cleanupBroker.EventsExchange, cleanupBroker.RetryExchange, cleanupBroker.DeadExchange })
             {
                 await channel.ExchangeDeleteAsync(exchange, cancellationToken: deadline.Token);
@@ -111,14 +108,11 @@ public sealed class RabbitTests : SqlFixture
         var provider = services.BuildServiceProvider();
         var broker = provider.GetRequiredService<RabbitBroker>();
         await using var channel = await broker.ConsumerChannelAsync(CancellationToken.None);
-        foreach (var type in new[] { IntegrationEvent.Received, IntegrationEvent.Processed })
+        await channel.QueuePurgeAsync(broker.ProcessingQueue);
+        await channel.QueuePurgeAsync(broker.ProcessingQueue + ".dead");
+        for (var i = 1; i <= RabbitBroker.RetryDelays.Length; i++)
         {
-            await channel.QueuePurgeAsync(broker.Queue(type));
-            await channel.QueuePurgeAsync(broker.Queue(type) + ".dead");
-            for (var i = 1; i <= RabbitBroker.RetryDelays.Length; i++)
-            {
-                await channel.QueuePurgeAsync(broker.Queue(type) + ".retry." + i);
-            }
+            await channel.QueuePurgeAsync(broker.ProcessingQueue + ".retry." + i);
         }
         return provider;
     }
@@ -150,8 +144,8 @@ public sealed class RabbitTests : SqlFixture
         var broker = provider.GetRequiredService<RabbitBroker>();
         using var dispatcher = new OutboxDispatcher(provider.GetRequiredService<IServiceScopeFactory>(), broker, TimeProvider.System,
             provider.GetRequiredService<ILogger<OutboxDispatcher>>());
-        using var consumers = new RabbitConsumers(provider.GetRequiredService<IServiceScopeFactory>(), broker,
-            provider.GetRequiredService<ILogger<RabbitConsumers>>());
+        using var consumers = new RabbitConsumer(provider.GetRequiredService<IServiceScopeFactory>(), broker,
+            provider.GetRequiredService<ILogger<RabbitConsumer>>());
         var accepted = await ReceiveAsync();
         await dispatcher.StartAsync(CancellationToken.None);
         await consumers.StartAsync(CancellationToken.None);
@@ -164,7 +158,7 @@ public sealed class RabbitTests : SqlFixture
                 var db = s.GetRequiredService<FiscalDbContext>();
                 return (await db.Summaries.CountAsync(), await db.Inbox.CountAsync(), await db.Failures.CountAsync());
             });
-            Assert.That(counts, Is.EqualTo((1, 2, 0)));
+            Assert.That(counts, Is.EqualTo((1, 1, 0)));
         }
         finally
         {
@@ -211,7 +205,7 @@ public sealed class RabbitTests : SqlFixture
         await broker.PublishAsync(outbox.Payload, outbox.EventType, broker.EventsExchange, 0, null, CancellationToken.None);
         await using (var channel = await broker.ConsumerChannelAsync(CancellationToken.None))
         {
-            var delivery = await channel.BasicGetAsync(broker.Queue(IntegrationEvent.Received), false);
+            var delivery = await channel.BasicGetAsync(broker.ProcessingQueue, false);
             Assert.That(delivery, Is.Not.Null);
             var message = JsonSerializer.Deserialize<IntegrationEvent>(delivery!.Body.Span, JsonDefaults.Options)!;
             await InScopeAsync(s => s.GetRequiredService<EventProcessor>().ProcessAsync(message, CancellationToken.None));
@@ -219,14 +213,70 @@ public sealed class RabbitTests : SqlFixture
         }
         await using var redeliveryChannel = await broker.ConsumerChannelAsync(CancellationToken.None);
         BasicGetResult? redelivery = null;
-        await WaitAsync(async () => (redelivery = await redeliveryChannel.BasicGetAsync(broker.Queue(IntegrationEvent.Received), false)) is not null);
+        await WaitAsync(async () => (redelivery = await redeliveryChannel.BasicGetAsync(broker.ProcessingQueue, false)) is not null);
         Assert.That(redelivery!.Redelivered, Is.True);
         var replay = JsonSerializer.Deserialize<IntegrationEvent>(redelivery.Body.Span, JsonDefaults.Options)!;
         var applied = await InScopeAsync(s => s.GetRequiredService<EventProcessor>().ProcessAsync(replay, CancellationToken.None));
         Assert.That(applied, Is.False);
         await redeliveryChannel.BasicAckAsync(redelivery.DeliveryTag, false);
-        Assert.That(await HasStatusAsync(accepted.DocumentId, ProcessingStatus.PendingSummary), Is.True);
-        Assert.That(await InScopeAsync(s => s.GetRequiredService<FiscalDbContext>().Outbox.CountAsync()), Is.EqualTo(2));
+        Assert.That(await HasStatusAsync(accepted.DocumentId, ProcessingStatus.Completed), Is.True);
+        Assert.That(await InScopeAsync(s => s.GetRequiredService<FiscalDbContext>().Outbox.CountAsync()), Is.EqualTo(1));
+    }
+
+    [Test]
+    public async Task Exhausted_retry_is_dead_lettered_without_partial_processing()
+    {
+        var faulty = new FaultingXml(Factory.Services.GetRequiredService<IXmlDocuments>(), false);
+        await using var provider = await WorkersAsync(faulty);
+        var broker = provider.GetRequiredService<RabbitBroker>();
+        var accepted = await ReceiveAsync();
+        var outbox = await InScopeAsync(s => s.GetRequiredService<FiscalDbContext>().Outbox.AsNoTracking().SingleAsync());
+        using var consumer = new RabbitConsumer(provider.GetRequiredService<IServiceScopeFactory>(), broker,
+            provider.GetRequiredService<ILogger<RabbitConsumer>>());
+        await consumer.StartAsync(CancellationToken.None);
+        try
+        {
+            await broker.PublishAsync(outbox.Payload, IntegrationEvent.Received, broker.EventsExchange,
+                RabbitBroker.RetryDelays.Length, null, CancellationToken.None);
+            await WaitAsync(() => HasStatusAsync(accepted.DocumentId, ProcessingStatus.Failed));
+            await using var channel = await broker.ConsumerChannelAsync(CancellationToken.None);
+            await WaitAsync(async () => (await channel.QueueDeclarePassiveAsync(broker.ProcessingQueue + ".dead")).MessageCount == 1);
+            await InScopeAsync(async s =>
+            {
+                var db = s.GetRequiredService<FiscalDbContext>();
+                Assert.That(await db.Summaries.CountAsync(), Is.Zero);
+                Assert.That(await db.Inbox.CountAsync(), Is.Zero);
+                Assert.That(await db.Failures.CountAsync(), Is.EqualTo(1));
+                return true;
+            });
+            Assert.That(faulty.Calls, Is.EqualTo(1));
+        }
+        finally { await consumer.StopAsync(CancellationToken.None); }
+    }
+
+    [TestCase(false)]
+    [TestCase(true)]
+    public async Task Invalid_or_unsupported_event_is_dead_lettered_without_changing_document(bool unsupportedType)
+    {
+        await using var provider = await WorkersAsync();
+        var broker = provider.GetRequiredService<RabbitBroker>();
+        var accepted = await ReceiveAsync();
+        var outbox = await InScopeAsync(s => s.GetRequiredService<FiscalDbContext>().Outbox.AsNoTracking().SingleAsync());
+        var message = JsonSerializer.Deserialize<IntegrationEvent>(outbox.Payload, JsonDefaults.Options)!;
+        message = unsupportedType ? message with { EventType = "unsupported.test" } : message with { EventId = Guid.Empty };
+        using var consumer = new RabbitConsumer(provider.GetRequiredService<IServiceScopeFactory>(), broker,
+            provider.GetRequiredService<ILogger<RabbitConsumer>>());
+        await consumer.StartAsync(CancellationToken.None);
+        try
+        {
+            await broker.PublishAsync(JsonSerializer.Serialize(message, JsonDefaults.Options), IntegrationEvent.Received,
+                broker.EventsExchange, 0, null, CancellationToken.None);
+            await using var channel = await broker.ConsumerChannelAsync(CancellationToken.None);
+            await WaitAsync(async () => (await channel.QueueDeclarePassiveAsync(broker.ProcessingQueue + ".dead")).MessageCount == 1);
+            Assert.That(await HasStatusAsync(accepted.DocumentId, ProcessingStatus.PendingExtraction), Is.True);
+            Assert.That(await InScopeAsync(s => s.GetRequiredService<FiscalDbContext>().Failures.CountAsync()), Is.Zero);
+        }
+        finally { await consumer.StopAsync(CancellationToken.None); }
     }
 
     [Test]
@@ -238,15 +288,15 @@ public sealed class RabbitTests : SqlFixture
         var accepted = await ReceiveAsync();
         using var dispatcher = new OutboxDispatcher(provider.GetRequiredService<IServiceScopeFactory>(), broker, TimeProvider.System,
             provider.GetRequiredService<ILogger<OutboxDispatcher>>());
-        using var consumers = new RabbitConsumers(provider.GetRequiredService<IServiceScopeFactory>(), broker,
-            provider.GetRequiredService<ILogger<RabbitConsumers>>());
+        using var consumers = new RabbitConsumer(provider.GetRequiredService<IServiceScopeFactory>(), broker,
+            provider.GetRequiredService<ILogger<RabbitConsumer>>());
         await dispatcher.StartAsync(CancellationToken.None);
         await consumers.StartAsync(CancellationToken.None);
         try
         {
             await WaitAsync(() => HasStatusAsync(accepted.DocumentId, ProcessingStatus.Failed));
             await using var channel = await broker.ConsumerChannelAsync(CancellationToken.None);
-            await WaitAsync(async () => (await channel.QueueDeclarePassiveAsync(broker.Queue(IntegrationEvent.Received) + ".dead")).MessageCount > 0);
+            await WaitAsync(async () => (await channel.QueueDeclarePassiveAsync(broker.ProcessingQueue + ".dead")).MessageCount > 0);
             var reconciled = await DlqReconciler.ReconcileAsync(provider);
             Assert.That(reconciled, Is.EqualTo(1));
             Assert.That(await InScopeAsync(s => s.GetRequiredService<FiscalDbContext>().Failures.CountAsync()), Is.EqualTo(1));
