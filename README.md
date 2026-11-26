@@ -150,7 +150,7 @@ O HTTP externo é `200`, com `results[]`: `inputIndex`, `statusCode`, `document`
 
 Cada aceitação tem sua própria transação. Se a conexão cair, houver erro de infraestrutura ou o multipart for interrompido, aceitações anteriores continuam válidas, mesmo que a resposta completa não chegue. Reenvie o lote inteiro para recuperar os resultados. Um lote com mais de dez partes devolve os dez resultados e um item indicando que os demais não foram aceitos. Limites globais ou multipart inválido podem encerrar a requisição com erro.
 
-Filtros: `from` inclusivo, `to` exclusivo, `issuerCnpj` exato (com ou sem pontuação), `state` em maiúsculas, `type` (`NFe`, `CTe`, `NFSe`), `status`, `pageSize` (1–100; padrão 20) e `cursor`. O filtro de identificador também aceita CPF de emitente NFSe. Datas são consultadas como instantes UTC; a competência preserva o mês local informado no XML. Ordenação por emissão e ID, ambos decrescentes. Reutilize `nextCursor` mantendo os filtros.
+Filtros: `from` inclusivo, `to` exclusivo, `issuerCnpj` exato (com ou sem pontuação), `state` com até dois caracteres (sem conferir a lista de UFs), `type` (`NFe`, `CTe`, `NFSe`), `status`, `pageSize` (1–100; padrão 20) e `cursor`. O filtro de identificador também aceita CPF de emitente NFSe. Datas são consultadas como instantes UTC; a competência preserva o mês local informado no XML. Ordenação por emissão e ID, ambos decrescentes. Reutilize `nextCursor` mantendo os filtros.
 
 ```powershell
 Invoke-RestMethod 'http://localhost:54392/api/v1/documents?state=SP&pageSize=20' -Headers $headers
@@ -193,7 +193,7 @@ Os arquivos de `samples/` são exemplos sintéticos reduzidos para o contrato im
 
 As versões e os modelos da tabela descrevem os exemplos de referência. O parser identifica o tipo pela raiz e pelo namespace e exige a estrutura dos campos utilizados. Não verifica a versão exata, o campo de modelo `55/57` nem a correspondência entre o CNPJ do emitente e o trecho da chave de acesso. Versões e modelos ausentes ou diferentes são aceitos quando a estrutura necessária permanece compatível; isso não acrescenta suporte automático a outros layouts de NFSe nem certifica a validade fiscal do XML.
 
-São mantidas as verificações de formato da identidade fiscal (prefixo e quantidade de dígitos), CNPJ/CPF, UF, código de município usado para obter a UF da NFSe, data com fuso horário explícito e valor monetário não negativo com até duas casas decimais, dentro do limite da persistência. Campos necessários ausentes, vazios ou ambíguos são rejeitados.
+São mantidas as verificações de formato da identidade fiscal (prefixo e quantidade de dígitos), CNPJ/CPF, data com fuso horário explícito e valor monetário não negativo com até duas casas decimais, dentro do limite da persistência. O campo de estado aceita até dois caracteres, conforme o tamanho da coluna no banco, sem conferir a lista de UFs. Na NFSe, `cMun` é utilizado apenas para obter a UF pelos dois primeiros caracteres, sem validar o tamanho ou os demais caracteres do código de município; se o prefixo não for reconhecido, o estado fica vazio. Campos de entrada necessários ausentes, vazios ou ambíguos são rejeitados.
 
 O segundo consumidor calcula `competence` (`AAAA-MM`) e `totalAmountInCents` com decimal, sem ponto flutuante. DTD, entidades externas, campos ambíguos, profundidade acima de 64, tamanhos excessivos e valores monetários inválidos são rejeitados. Não há consulta fiscal externa, validação XSD, cálculo de dígito verificador ou validação de assinatura.
 

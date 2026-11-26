@@ -241,6 +241,35 @@ public sealed class DocumentTests : SqlFixture
     }
 
     [Test]
+    public async Task Unrecognised_state_can_be_stored_and_filtered()
+    {
+        var input = Encoding.UTF8.GetBytes(Encoding.UTF8.GetString(Sample())
+            .Replace("<UF>SP</UF>", "<UF>XX</UF>", StringComparison.Ordinal));
+        var accepted = await ReceiveAsync(input);
+        var page = (await Client.GetFromJsonAsync<Page<DocumentItem>>("/api/v1/documents?state=XX", JsonDefaults.Options))!;
+        var missing = (await Client.GetFromJsonAsync<Page<DocumentItem>>("/api/v1/documents?state=YY", JsonDefaults.Options))!;
+        using var tooLong = await Client.GetAsync("/api/v1/documents?state=ABC");
+        Assert.Multiple(() =>
+        {
+            Assert.That(page.Items, Has.Count.EqualTo(1));
+            Assert.That(page.Items[0].Id, Is.EqualTo(accepted.DocumentId));
+            Assert.That(page.Items[0].State, Is.EqualTo("XX"));
+            Assert.That(missing.Items, Is.Empty);
+            Assert.That(tooLong.StatusCode, Is.EqualTo(HttpStatusCode.BadRequest));
+        });
+    }
+
+    [Test]
+    public async Task Nfse_with_unknown_municipality_prefix_can_be_stored_with_empty_state()
+    {
+        var input = Encoding.UTF8.GetBytes(Encoding.UTF8.GetString(Sample("nfse.xml"))
+            .Replace("<cMun>3550308</cMun>", "<cMun>99</cMun>", StringComparison.Ordinal));
+        var accepted = await ReceiveAsync(input);
+        var details = await DetailsAsync(accepted.DocumentId);
+        Assert.That(details.Document.State, Is.Empty);
+    }
+
+    [Test]
     public async Task Filters_pagination_and_sensitive_data_are_safe()
     {
         await ReceiveAsync();

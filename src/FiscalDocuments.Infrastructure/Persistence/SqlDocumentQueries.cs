@@ -14,7 +14,7 @@ public sealed class SqlDocumentQueries(FiscalDbContext db, IFingerprints fingerp
         if (filter.From.HasValue && filter.To.HasValue && filter.From >= filter.To) throw new AppException("invalid_date_range");
         if (filter.Type.HasValue && !Enum.IsDefined(filter.Type.Value) || filter.Status.HasValue && !Enum.IsDefined(filter.Status.Value))
             throw new AppException("invalid_filter");
-        if (filter.State is not null && !Xml.FiscalXmlDocuments.IsState(filter.State)) throw new AppException("invalid_state");
+        if (filter.State is { Length: > 2 }) throw new AppException("invalid_state");
         var issuerHmac = filter.IssuerCnpj is null ? null : fingerprints.TaxId(filter.IssuerCnpj);
         var filterHash = fingerprints.Hash(JsonSerializer.Serialize(new { filter.From, filter.To, issuerHmac, filter.State, filter.Type, filter.Status }));
         var query = from document in db.Documents.AsNoTracking()

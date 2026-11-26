@@ -112,6 +112,41 @@ public sealed class XmlTests
         Assert.That(a.ContentHmac, Is.EqualTo(parser.ValidateAndSanitize(original).ContentHmac));
     }
 
+    [TestCase("35")]
+    [TestCase("35abc")]
+    [TestCase("3550308123")]
+    public void Nfse_uses_state_prefix_without_validating_municipality_format(string municipality)
+    {
+        var input = Encoding.UTF8.GetBytes(Encoding.UTF8.GetString(Sample("nfse.xml"))
+            .Replace("<cMun>3550308</cMun>", $"<cMun>{municipality}</cMun>", StringComparison.Ordinal));
+        var parsed = parser.ValidateAndSanitize(input);
+        Assert.That(parsed.State, Is.EqualTo("SP"));
+    }
+
+    [TestCase("3")]
+    [TestCase("99")]
+    public void Nfse_keeps_state_empty_when_municipality_prefix_is_unknown(string municipality)
+    {
+        var input = Encoding.UTF8.GetBytes(Encoding.UTF8.GetString(Sample("nfse.xml"))
+            .Replace("<cMun>3550308</cMun>", $"<cMun>{municipality}</cMun>", StringComparison.Ordinal));
+        var parsed = parser.ValidateAndSanitize(input);
+        Assert.That(parsed.State, Is.Empty);
+    }
+
+    [TestCase("nfe.xml")]
+    [TestCase("cte.xml")]
+    public void Accepts_unrecognised_state_values_that_fit_storage(string name)
+    {
+        var input = Encoding.UTF8.GetBytes(Encoding.UTF8.GetString(Sample(name))
+            .Replace("<UF>SP</UF>", "<UF>XX</UF>", StringComparison.Ordinal));
+        var parsed = parser.ValidateAndSanitize(input);
+        Assert.Multiple(() =>
+        {
+            Assert.That(parsed.State, Is.EqualTo("XX"));
+            Assert.That(parsed.SanitizedXml, Does.Contain("<State>XX</State>"));
+        });
+    }
+
     [Test]
     public void Content_fingerprint_is_calculated_before_masking()
     {
@@ -141,7 +176,7 @@ public sealed class XmlTests
     [TestCase("150.25", "1.001")]
     [TestCase("150.25", "NaN")]
     [TestCase("2026-11-25T10:00:00-03:00", "2026-11-25T10:00:00")]
-    [TestCase("<UF>SP</UF>", "<UF>XX</UF>")]
+    [TestCase("<UF>SP</UF>", "<UF>ABC</UF>")]
     [TestCase("<vNF>150.25</vNF>", "")]
     [TestCase("<vNF>150.25</vNF>", "<vNF> </vNF>")]
     [TestCase("150.25", "10000000000000000.00")]

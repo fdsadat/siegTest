@@ -11,7 +11,8 @@ public sealed class FiscalXmlDocuments(IFingerprints fingerprints) : IXmlDocumen
     private const string NfeNamespace = "http://www.portalfiscal.inf.br/nfe";
     private const string CteNamespace = "http://www.portalfiscal.inf.br/cte";
     private const string NfseNamespace = "http://www.sped.fazenda.gov.br/nfse";
-    private static readonly string[] States = ["AC", "AL", "AP", "AM", "BA", "CE", "DF", "ES", "GO", "MA", "MT", "MS", "MG", "PA", "PB", "PR", "PE", "PI", "RJ", "RN", "RS", "RO", "RR", "SC", "SP", "SE", "TO"];
+
+    // Deixei essa validação de estados IBGE para o caso de precisar validar o XML da NFSe, que não tem estado explícito. Achei interessante manter.
     private static readonly Dictionary<string, string> IbgeStates = new()
     {
         ["11"] = "RO", ["12"] = "AC", ["13"] = "AM", ["14"] = "RR", ["15"] = "PA", ["16"] = "AP", ["17"] = "TO",
@@ -19,11 +20,20 @@ public sealed class FiscalXmlDocuments(IFingerprints fingerprints) : IXmlDocumen
         ["31"] = "MG", ["32"] = "ES", ["33"] = "RJ", ["35"] = "SP", ["41"] = "PR", ["42"] = "SC", ["43"] = "RS",
         ["50"] = "MS", ["51"] = "MT", ["52"] = "GO", ["53"] = "DF"
     };
-    public static bool IsState(string value) => States.Contains(value, StringComparer.Ordinal);
 
+    /// <summary>
+    /// Validação dos campos dos 3 tipos de arquivo, a IA deixou a validação bem mais completa do que eu teria feito no tempo dado.
+    /// A sanatização dos dados foi a parte mais importante, os dados sensiveis estão escondidos atrás de uma encriptação HMAC
+    /// </summary>
+    /// <param name="bytes"></param>
+    /// <returns></returns>
+    /// <exception cref="AppException"></exception>
     public FiscalXml ValidateAndSanitize(ReadOnlyMemory<byte> bytes)
     {
-        if (bytes.Length == 0 || bytes.Length > RequestValidation.MaxFileBytes) throw new AppException("invalid_xml_size");
+        if (bytes.Length == 0 || bytes.Length > RequestValidation.MaxFileBytes) 
+        { 
+            throw new AppException("invalid_xml_size"); 
+        }
         try
         {
             using var stream = new MemoryStream(bytes.ToArray(), writable: false);
@@ -69,18 +79,26 @@ public sealed class FiscalXmlDocuments(IFingerprints fingerprints) : IXmlDocumen
                 var provider = One(dps, "prest");
                 issuer = TaxIdentifier(provider);
                 var municipality = Text(One(One(provider, "end"), "endNac"), "cMun");
-                if (municipality.Length != 7 || !municipality.All(char.IsAsciiDigit) || !IbgeStates.TryGetValue(municipality[..2], out state!))
-                    throw new AppException("invalid_municipality");
+                var stateCode = municipality[..Math.Min(2, municipality.Length)];
+                state = IbgeStates.GetValueOrDefault(stateCode, "");
                 issued = Text(dps, "dhEmi");
                 total = Text(One(One(dps, "valores"), "vServPrest"), "vServ");
             }
-            else throw new AppException("unsupported_xml_layout");
+            else
+            {
+                throw new AppException("unsupported_xml_layout");
+            }
 
-            if (!IsState(state)) throw new AppException("invalid_state");
-            // As datas e horas fiscais devem incluir um fuso horário explícito; nunca dependa do fuso do servidor.
+            if (state.Length > 2)
+            {
+                throw new AppException("invalid_state");
+            }
+            // As datas e horas fiscais devem incluir um fuso horário explícito. É uma das validações adicionadas.
             if (!(issued.EndsWith('Z') || issued.Length >= 6 && issued[^6] is '+' or '-' && issued[^3] == ':') ||
                 !DateTimeOffset.TryParse(issued, CultureInfo.InvariantCulture, DateTimeStyles.None, out var issuedAt))
-                throw new AppException("invalid_issue_date");
+            { 
+                throw new AppException("invalid_issue_date"); 
+            }
             var amount = Amount(total);
             var issuerHmac = fingerprints.TaxId(issuer);
             var maskedIssuer = new string('*', issuer.Length);
@@ -91,13 +109,28 @@ public sealed class FiscalXmlDocuments(IFingerprints fingerprints) : IXmlDocumen
                 new XElement("IssuedAt", issuedAt.ToString("O", CultureInfo.InvariantCulture)),
                 new XElement("State", state), new XElement("TotalAmount", amount.ToString("F2", CultureInfo.InvariantCulture)))
                 .ToString(SaveOptions.DisableFormatting);
+
+            // Criação do objeto FiscalXml com os dados validados e sanitizados, incluindo HMACs para identidade e conteúdo.
             return new FiscalXml(type, fingerprints.Hash($"identity:{type}:{identity}"), fingerprints.Hash(bytes.Span),
                 maskedIssuer, issuerHmac, issuedAt, state, sanitized);
         }
-        catch (XmlException) { throw new AppException("malformed_or_unsafe_xml"); }
-        catch (InvalidOperationException) { throw new AppException("ambiguous_xml"); }
+        catch (XmlException) 
+        { 
+            throw new AppException("malformed_or_unsafe_xml"); 
+        }
+        catch (InvalidOperationException) 
+        { 
+            throw new AppException("ambiguous_xml"); 
+        }
     }
 
+    /// <summary>
+    /// 
+    /// </summary>
+    /// <param name="xml"></param>
+    /// <returns></returns>
+    /// <exception cref="AppException"></exception>
+    /// <exception cref="PermanentProcessingException"></exception>
     public ExtractedData ExtractSanitized(string xml)
     {
         try
@@ -111,7 +144,9 @@ public sealed class FiscalXmlDocuments(IFingerprints fingerprints) : IXmlDocumen
             return new ExtractedData(amount, date.ToString("yyyy-MM", CultureInfo.InvariantCulture));
         }
         catch (Exception exception) when (exception is XmlException or AppException or FormatException or InvalidOperationException)
-        { throw new PermanentProcessingException("invalid_sanitized_xml"); }
+        { 
+            throw new PermanentProcessingException("invalid_sanitized_xml"); 
+        }
     }
 
     private static XDocument Read(Stream stream)
@@ -146,38 +181,92 @@ public sealed class FiscalXmlDocuments(IFingerprints fingerprints) : IXmlDocumen
         return document;
     }
 
+    /// <summary>
+    /// Checa se existe 1, e apenas 1, daquele tipo. E retorna o elemento.
+    /// </summary>
+    /// <param name="parent"></param>
+    /// <param name="localName"></param>
+    /// <returns></returns>
+    /// <exception cref="AppException"></exception>
     private static XElement One(XElement parent, string localName)
     {
         var elements = parent.Elements(parent.Name.Namespace + localName).Take(2).ToArray();
-        if (elements.Length != 1) throw new AppException("missing_or_ambiguous_field");
+        if (elements.Length != 1)
+        {
+            throw new AppException("missing_or_ambiguous_field");
+        }
         return elements[0];
     }
+
+    /// <summary>
+    /// Checa se o elemento é único e não é apenas espaços/nulo. E retorna o valor do elemento, sem espaços.
+    /// </summary>
+    /// <param name="parent"></param>
+    /// <param name="name"></param>
+    /// <returns></returns>
+    /// <exception cref="AppException"></exception>
     private static string Text(XElement parent, string name)
     {
         var element = One(parent, name);
-        if (element.HasElements || string.IsNullOrWhiteSpace(element.Value)) throw new AppException("invalid_field");
+        if (element.HasElements || string.IsNullOrWhiteSpace(element.Value))
+        {
+            throw new AppException("invalid_field");
+        }
         return element.Value.Trim();
     }
+
+    /// <summary>
+    ///  Checa valores de CNPJ e CPF. E retorna o valor sem pontuação, apenas dígitos.
+    /// </summary>
+    /// <param name="parent"></param>
+    /// <returns></returns>
+    /// <exception cref="AppException"></exception>
     private static string TaxIdentifier(XElement parent)
     {
         var nodes = parent.Elements().Where(e => e.Name.Namespace == parent.Name.Namespace && e.Name.LocalName is "CPF" or "CNPJ").ToArray();
-        if (nodes.Length != 1 || nodes[0].HasElements) throw new AppException("invalid_tax_id");
+        if (nodes.Length != 1 || nodes[0].HasElements) 
+        { 
+            throw new AppException("invalid_tax_id"); 
+        }
         var value = nodes[0].Value.Trim();
-        if (value.Length != (nodes[0].Name.LocalName == "CPF" ? 11 : 14) || !value.All(char.IsAsciiDigit)) throw new AppException("invalid_tax_id");
+        if (value.Length != (nodes[0].Name.LocalName == "CPF" ? 11 : 14) || !value.All(char.IsAsciiDigit))
+        {
+            throw new AppException("invalid_tax_id");
+        }
         return value;
     }
+
+    /// <summary>
+    /// Verifica o atributo de Id e retorna uma substring do valor, removendo o prefixo.
+    /// </summary>
+    /// <param name="info"></param>
+    /// <param name="prefix"></param>
+    /// <param name="length"></param>
+    /// <returns></returns>
+    /// <exception cref="AppException"></exception>
     private static string AccessKey(XElement info, string prefix, int length)
     {
         var value = (string?)info.Attribute("Id") ?? "";
         if (!value.StartsWith(prefix, StringComparison.Ordinal) || value.Length != prefix.Length + length || !value[prefix.Length..].All(char.IsAsciiDigit))
+        {
             throw new AppException("invalid_fiscal_identity");
+        }
         return value[prefix.Length..];
     }
+
+    /// <summary>
+    /// Verifica o valor e retorna em decimal.
+    /// </summary>
+    /// <param name="value"></param>
+    /// <returns></returns>
+    /// <exception cref="AppException"></exception>
     private static decimal Amount(string value)
     {
         if (!decimal.TryParse(value, NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out var amount) ||
             amount < 0 || amount > 9999999999999999.99m || decimal.Round(amount, 2) != amount)
+        {
             throw new AppException("invalid_total_amount");
+        }
         return amount;
     }
 }
