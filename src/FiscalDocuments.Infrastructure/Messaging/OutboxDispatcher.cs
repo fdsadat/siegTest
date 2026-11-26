@@ -30,8 +30,10 @@ public sealed class OutboxDispatcher(IServiceScopeFactory scopes, RabbitBroker b
     {
         await using var scope = scopes.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<FiscalDbContext>();
+        // Cria uma coleira temporaria no SQL Server para garantir que apenas uma instancia do serviço publique a mesma mensagem.
         var lease = Guid.NewGuid();
         var now = clock.GetUtcNow();
+        // Tempo da coleira, que pode ser adiado se necessario.
         var leaseUntil = now.AddMinutes(2);
         // The captured lease makes an ambiguous command retry idempotent.
         await db.Database.ExecuteSqlInterpolatedAsync($"""
@@ -50,7 +52,7 @@ public sealed class OutboxDispatcher(IServiceScopeFactory scopes, RabbitBroker b
         if (message is null) return false;
         try
         {
-            await broker.PublishAsync(message.Payload, message.EventType, RabbitBroker.EventsExchange, 0, null, ct);
+            await broker.PublishAsync(message.Payload, message.EventType, broker.EventsExchange, 0, null, ct);
             await db.Outbox.Where(m => m.Id == message.Id && m.LeaseId == lease).ExecuteUpdateAsync(setters => setters
                 .SetProperty(m => m.PublishedAt, clock.GetUtcNow()).SetProperty(m => m.LeaseId, (Guid?)null)
                 .SetProperty(m => m.LeaseUntil, (DateTimeOffset?)null), ct);

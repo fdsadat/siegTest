@@ -13,7 +13,7 @@ using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 
-var builder = WebApplication.CreateBuilder(args.Where(argument => argument != "--migrate").ToArray());
+var builder = WebApplication.CreateBuilder(args.Where(argument => argument is not "--migrate" and not "--check-dependencies").ToArray());
 builder.Services.AddApplication().AddInfrastructure(builder.Configuration);
 builder.Services.AddControllers().AddJsonOptions(options => options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter()));
 builder.Services.AddEndpointsApiExplorer();
@@ -81,6 +81,17 @@ builder.Services.AddRateLimiter(options =>
 builder.WebHost.ConfigureKestrel(options => options.Limits.MaxRequestBodySize = 21 * 1024 * 1024);
 
 var app = builder.Build();
+if (args.Contains("--check-dependencies", StringComparer.Ordinal))
+{
+    try { await app.Services.CheckLocalDependenciesAsync(); }
+    catch (InvalidOperationException exception)
+    {
+        Console.Error.WriteLine(exception.Message);
+        Environment.ExitCode = 1;
+    }
+    await app.DisposeAsync();
+    return;
+}
 if (args.Contains("--migrate", StringComparer.Ordinal))
 {
     await app.Services.MigrateDatabaseAsync();

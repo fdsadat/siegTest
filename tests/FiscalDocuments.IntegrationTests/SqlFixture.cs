@@ -12,7 +12,6 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.IdentityModel.Tokens;
 using NUnit.Framework;
-using Testcontainers.MsSql;
 
 namespace FiscalDocuments.IntegrationTests;
 
@@ -21,7 +20,6 @@ public abstract class SqlFixture
     protected const string JwtKey = "test-only-signing-key-not-for-production-0123456789";
     protected WebApplicationFactory<Program> Factory = null!;
     protected HttpClient Client = null!;
-    private MsSqlContainer? sql;
     private string connection = "";
 
     [OneTimeSetUp]
@@ -29,10 +27,16 @@ public abstract class SqlFixture
     {
         var external = Environment.GetEnvironmentVariable("FISCAL_TEST_SQL_CONNECTION");
         if (string.IsNullOrWhiteSpace(external))
+            external = @"Server=(localdb)\MSSQLLocalDB;Integrated Security=true;TrustServerCertificate=true";
+        try
         {
-            sql = new MsSqlBuilder("mcr.microsoft.com/mssql/server:2022-latest").Build();
-            await sql.StartAsync();
-            external = sql.GetConnectionString();
+            await using var check = new SqlConnection(new SqlConnectionStringBuilder(external)
+            { InitialCatalog = "master", ConnectTimeout = 10 }.ConnectionString);
+            await check.OpenAsync();
+        }
+        catch (Exception exception)
+        {
+            throw new InvalidOperationException("SQL test prerequisite unavailable. Install/start SQL Server LocalDB, or set FISCAL_TEST_SQL_CONNECTION to a SQL Server account allowed to create and drop test databases. No Docker fallback is used. Failure type: " + exception.GetType().Name);
         }
         connection = new SqlConnectionStringBuilder(external)
         {
@@ -47,6 +51,7 @@ public abstract class SqlFixture
                 ["Privacy:HmacKey"] = Convert.ToBase64String(Enumerable.Range(1, 32).Select(i => (byte)i).ToArray()),
                 ["Jwt:SigningKey"] = JwtKey,
                 ["Jwt:Issuer"] = "fiscal-documents", ["Jwt:Audience"] = "fiscal-api",
+                ["Jwt:Authority"] = null,
                 ["Database:ApplyMigrations"] = "false"
             }));
         });
@@ -77,7 +82,6 @@ public abstract class SqlFixture
             await scope.ServiceProvider.GetRequiredService<FiscalDbContext>().Database.EnsureDeletedAsync();
             await Factory.DisposeAsync();
         }
-        if (sql is not null) await sql.DisposeAsync();
     }
 
     protected static byte[] Sample(string name = "nfe.xml") => File.ReadAllBytes(Path.Combine(TestContext.CurrentContext.TestDirectory, "Samples", name));

@@ -6,6 +6,32 @@ jobs:
   verify:
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    services:
+      sql:
+        image: mcr.microsoft.com/mssql/server:2022-latest
+        env:
+          ACCEPT_EULA: 'Y'
+          MSSQL_SA_PASSWORD: 'FiscalCi!2026-Only1a'
+        ports: ['1433:1433']
+        options: >-
+          --health-cmd "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P FiscalCi!2026-Only1a -C -Q 'SELECT 1' -b -o /dev/null"
+          --health-interval 5s --health-timeout 5s --health-retries 30
+      rabbit:
+        image: rabbitmq:4.1-management
+        env:
+          RABBITMQ_DEFAULT_USER: fiscal_ci
+          RABBITMQ_DEFAULT_PASS: 'test-only-Rabbit!0123456789'
+        ports: ['5672:5672']
+        options: >-
+          --health-cmd "rabbitmq-diagnostics -q ping"
+          --health-interval 5s --health-timeout 10s --health-retries 30
+    env:
+      FISCAL_TEST_SQL_CONNECTION: 'Server=localhost,1433;User Id=sa;Password=FiscalCi!2026-Only1a;TrustServerCertificate=true'
+      FISCAL_TEST_RABBIT_HOST: localhost
+      FISCAL_TEST_RABBIT_PORT: '5672'
+      FISCAL_TEST_RABBIT_USERNAME: fiscal_ci
+      FISCAL_TEST_RABBIT_PASSWORD: 'test-only-Rabbit!0123456789'
+      FISCAL_TEST_RABBIT_VIRTUAL_HOST: '/'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4

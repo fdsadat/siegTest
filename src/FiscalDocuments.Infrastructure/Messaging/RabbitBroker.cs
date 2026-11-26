@@ -13,20 +13,30 @@ public sealed class RabbitOptions
     public string Username { get; set; } = "";
     public string Password { get; set; } = "";
     public string VirtualHost { get; set; } = "/";
+    public string TopologyPrefix { get; set; } = "fiscal";
 }
 
 public sealed class RabbitBroker(IOptions<RabbitOptions> options) : IAsyncDisposable
 {
-    public const string EventsExchange = "fiscal.events";
-    public const string RetryExchange = "fiscal.retry";
-    public const string DeadExchange = "fiscal.dead";
+    private readonly string topologyPrefix = ValidatePrefix(options.Value.TopologyPrefix);
+    public string EventsExchange => topologyPrefix + ".events";
+    public string RetryExchange => topologyPrefix + ".retry";
+    public string DeadExchange => topologyPrefix + ".dead";
     public static readonly int[] RetryDelays = [5000, 30000, 120000];
     private readonly SemaphoreSlim connectionGate = new(1, 1);
     private readonly SemaphoreSlim publishGate = new(1, 1);
     private IConnection? connection;
     private IChannel? publisher;
     public bool IsConnected => connection?.IsOpen == true;
-    public static string Queue(string type) => "fiscal." + EventProcessor.Consumer(type);
+    public string Queue(string type) => topologyPrefix + "." + EventProcessor.Consumer(type);
+
+    private static string ValidatePrefix(string prefix)
+    {
+        if (string.IsNullOrWhiteSpace(prefix) || prefix.Length > 100 ||
+            prefix.Any(c => !char.IsAsciiLetterOrDigit(c) && c is not '.' and not '_' and not '-'))
+            throw new InvalidOperationException("Rabbit:TopologyPrefix requires 1 to 100 ASCII letters, digits, dots, underscores or hyphens.");
+        return prefix;
+    }
 
     public async Task<IConnection> ConnectionAsync(CancellationToken ct)
     {
@@ -95,7 +105,7 @@ public sealed class RabbitBroker(IOptions<RabbitOptions> options) : IAsyncDispos
     public Task PublishEventAsync(IntegrationEvent message, CancellationToken ct) =>
         PublishAsync(JsonSerializer.Serialize(message, JsonDefaults.Options), message.EventType, EventsExchange, 0, null, ct);
 
-    public static async Task DeclareAsync(IChannel channel, CancellationToken ct)
+    public async Task DeclareAsync(IChannel channel, CancellationToken ct)
     {
         await channel.ExchangeDeclareAsync(EventsExchange, ExchangeType.Direct, true, false, cancellationToken: ct);
         await channel.ExchangeDeclareAsync(RetryExchange, ExchangeType.Direct, true, false, cancellationToken: ct);

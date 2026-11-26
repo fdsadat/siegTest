@@ -2,67 +2,99 @@
 
 API do desafio técnico em .NET 10, Clean Architecture, DDD e CQRS com MediatR. SQL Server garante unicidade e concorrência; RabbitMQ transporta eventos com entrega *at least once*. Outbox e inbox tornam os efeitos de negócio idempotentes.
 
-## Executar
+## Executar no Windows, sem Docker
 
-Pré-requisitos: Docker Engine/Desktop com containers Linux e Compose. Para compilar e testar fora dos containers: SDK .NET 10. Os scripts funcionam no Windows PowerShell 5.1 e no PowerShell 7 (também disponível em Linux). Execute os comandos abaixo em uma dessas sessões; não é necessário ter `pwsh` instalado no Windows.
+Instale previamente:
+
+- **SDK .NET 10** (o SDK, não somente o runtime).
+- **SQL Server Express LocalDB**, pela opção LocalDB do Visual Studio Installer ou pelo [instalador SQL Server Express](https://learn.microsoft.com/en-us/sql/database-engine/configure-windows/sql-server-express-localdb). Também é possível usar SQL Server/Express já instalado com uma conexão explícita.
+- **RabbitMQ 4.x com uma versão compatível de Erlang**, seguindo o [guia oficial para Windows](https://www.rabbitmq.com/docs/install-windows). Confirme que o serviço RabbitMQ está em execução. O plugin de administração é opcional para a aplicação.
+
+Os scripts são compatíveis com Windows PowerShell 5.1 e PowerShell 7; não é necessário instalar `pwsh`. Na raiz do repositório:
 
 ```powershell
-& ./scripts/New-DevEnvironment.ps1
-docker compose up --build -d
-docker compose logs -f api worker
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./scripts/Initialize-Local.ps1
 ```
 
-Se o Windows PowerShell bloquear a execução de scripts, use `powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./scripts/New-DevEnvironment.ps1`. Para o token, use `$token = powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./scripts/New-DevToken.ps1`. A opção vale somente para o processo iniciado, sem alterar a política permanente do Windows.
+A inicialização cria/preserva os segredos em `.env`, gera os `appsettings.Development.json` dos dois projetos, verifica as conexões SQL/RabbitMQ e aplica migrations. Não instala programas nem reconfigura serviços. A opção `ExecutionPolicy` vale somente para esse processo. Arquivos locais de configuração são ignorados pelo Git e excluídos do contexto Docker.
 
-O script cria um `.env` ignorado pelo Git com segredos independentes. Reexecutá-lo preserva os valores existentes. Preserve esse arquivo entre reinicializações: a chave HMAC é necessária para reconhecer documentos já recebidos. A troca da chave exige uma estratégia de migração dos identificadores, fora deste desafio.
+Padrões locais:
 
-- API/Swagger: http://localhost:8080/swagger
-- Liveness: http://localhost:8080/health/live
-- Readiness SQL/migrations: http://localhost:8080/health/ready
-- Administração RabbitMQ: http://localhost:15672, usuário `fiscal_app`, senha gerada em `.env`.
+| Configuração | Valor |
+| --- | --- |
+| SQL | `(localdb)\MSSQLLocalDB`, banco `FiscalDocuments`, autenticação Windows |
+| RabbitMQ | `localhost:5672`, usuário/senha `guest`/`guest`, vhost `/` |
+| Filas/exchanges | Prefixo `fiscal` (`Rabbit:TopologyPrefix`) |
+| API/Swagger | http://localhost:54392/swagger |
+| Readiness | http://localhost:54392/health/ready |
 
-O worker conecta ao RabbitMQ em `rabbit:5672` pela rede interna do Compose; essa porta não é publicada no host, evitando conflitos com instalações locais do RabbitMQ.
+O usuário SQL precisa poder criar o banco e aplicar migrations; LocalDB usa a conta Windows atual. Nesse modo não é criado o login SQL `fiscal_app`. O usuário RabbitMQ precisa de permissões configure/read/write no vhost escolhido; `guest` serve para a instalação local padrão. Se a instalação já possui outras credenciais, forneça-as explicitamente.
 
-O serviço `migrate` aplica migrations e cria o usuário SQL `fiscal_app`, com leitura/escrita de dados. API e worker não usam a conta `sa`. O Compose mantém volumes de SQL e RabbitMQ e expõe portas apenas em loopback. A demonstração usa um nó RabbitMQ; isso não constitui alta disponibilidade contra perda do nó/volume.
-
-O health check do SQL permite criar o banco na primeira execução e, quando `FiscalDocuments` já existe, espera que ele esteja acessível antes de iniciar migrations. Isso evita tentar recriar o banco enquanto ele ainda está em recuperação após uma reinicialização.
-
-Para gerar um token com validade de duas horas, execute **POST /api/v1/auth/token** no Swagger, sem autenticação e sem corpo. Copie `accessToken`, clique em **Authorize** e cole o token.
-
-**Esse endpoint não deveria existir em produção: foi incluído apenas para facilitar os testes deste projeto.** Ele é registrado somente em `Development`, quando `Jwt:Authority` não está configurado, e concede as três permissões de teste.
+Para outra instância SQL e/ou broker:
 
 ```powershell
-$auth = Invoke-RestMethod -Method Post http://localhost:8080/api/v1/auth/token
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./scripts/Initialize-Local.ps1 `
+  -SqlConnectionString 'Server=.\SQLEXPRESS;Database=FiscalDocuments;Integrated Security=true;TrustServerCertificate=true' `
+  -RabbitHost localhost -RabbitPort 5672 `
+  -RabbitUsername 'seu-usuario' -RabbitPassword 'sua-senha' -RabbitVirtualHost '/'
+```
+
+Reexecute com os mesmos argumentos personalizados para regenerar configurações. A chave HMAC e a chave JWT existentes são preservadas; preserve `.env` entre reinicializações. O banco nativo é separado de qualquer volume Docker existente; não há transferência automática de dados.
+
+Em dois terminais, inicie API e worker:
+
+```powershell
+# Terminal 1
+dotnet run --project src/FiscalDocuments.Api --launch-profile "Local Debug"
+# Terminal 2
+dotnet run --project src/FiscalDocuments.Worker --launch-profile "Local Debug"
+```
+
+Use `Ctrl+C` em cada terminal para parar. O worker precisa estar em execução para que documentos cheguem a `Completed`.
+
+## Depurar API e worker no Visual Studio
+
+Após a inicialização local, abra `FiscalDocuments.sln`, configure múltiplos projetos de inicialização e escolha **Start** para `FiscalDocuments.Api` e `FiscalDocuments.Worker` (demais: **None**). Selecione **Local Debug** para ambos e pressione **F5**. Swagger: http://localhost:54392/swagger.
+
+Breakpoints úteis: `DocumentsController.Upload`, `OutboxDispatcher.DispatchOneAsync`, `RabbitConsumers.ConsumeAsync` e `EventProcessor.ProcessAsync`. Use um documento com identidade nova para percorrer o fluxo; conteúdo já recebido não inicia outro processamento. Execute somente o worker que deseja depurar para evitar que outra instância consuma suas mensagens. Pausas longas podem expirar leases/conexões e provocar retries/reentregas.
+
+## Gerar token de teste
+
+Execute **POST /api/v1/auth/token** no Swagger, sem autenticação e sem corpo. Copie `accessToken`, clique em **Authorize** e cole o token. Validade: duas horas.
+
+**Esse endpoint não deveria existir em produção: foi incluído apenas para facilitar os testes deste projeto.** É registrado somente em `Development`, quando `Jwt:Authority` não está configurado, e concede `documents.read`, `documents.write` e `operations.replay`.
+
+```powershell
+$auth = Invoke-RestMethod -Method Post http://localhost:54392/api/v1/auth/token
 $token = $auth.accessToken
 $headers = @{ Authorization = "$($auth.tokenType) $token" }
 ```
 
-Como alternativa, o script local continua disponível:
+Alternativa: `$token = powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./scripts/New-DevToken.ps1`. Em um ambiente integrado, configure `Jwt__Authority` com um provedor HTTPS e `Jwt__Audience`; não há servidor de identidade implementado neste projeto.
+
+## Docker opcional
+
+O fluxo Windows e os testes não dependem de Docker. Para quem preferir containers:
 
 ```powershell
-$token = & ./scripts/New-DevToken.ps1
-$headers = @{ Authorization = "Bearer $token" }
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./scripts/New-DevEnvironment.ps1
+docker compose up --build -d
+docker compose logs -f api worker
 ```
 
-Swagger possui botão **Authorize** para colar o token. JWT valida assinatura, emissor, público e expiração. As permissões são `documents.read`, `documents.write` e `operations.replay`. Em um ambiente integrado, configure `Jwt__Authority` com um provedor HTTPS e `Jwt__Audience`; não há servidor de identidade implementado neste projeto.
+Swagger Docker: http://localhost:8080/swagger. SQL é publicado em `localhost:1433` e a administração RabbitMQ em http://localhost:15672 (usuário `fiscal_app`, senha `RABBIT_PASSWORD` de `.env`). O worker Docker usa `rabbit:5672` internamente, sem publicar AMQP no host. Ajuste URLs dos exemplos para a porta 8080 nesse modo.
 
-## Depurar API e worker no Visual Studio
+O serviço `migrate` aplica migrations e provisiona o login SQL `fiscal_app`; API e worker usam esse login de leitura/escrita. O health check espera o banco existente ficar acessível após recuperação. Os volumes SQL/RabbitMQ são preservados por `docker compose down`. Este exemplo usa um único nó RabbitMQ.
 
-Execute SQL Server, RabbitMQ e migrations em Docker; execute API e worker locais com o debugger:
+Para depurar processos locais usando infraestrutura Docker, selecione explicitamente esse modo:
 
 ```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./scripts/Set-LocalDebugEnvironment.ps1
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./scripts/Set-LocalDebugEnvironment.ps1 -Mode Docker
 docker compose stop api worker
 docker compose -f compose.yaml -f compose.debug.yaml up -d sql rabbit migrate
 ```
 
-O script reutiliza os segredos de `.env` e gera `appsettings.Development.json` nos dois projetos, preservando configurações não relacionadas. Esses arquivos são ignorados pelo Git e excluídos do contexto Docker. O override publica AMQP em `localhost:5673`, pois `5672` pode estar ocupado por uma instalação local. SQL permanece em `localhost:1433`.
-
-Abra `FiscalDocuments.sln`, configure múltiplos projetos de inicialização e escolha **Start** para `FiscalDocuments.Api` e `FiscalDocuments.Worker` (demais: **None**). Selecione o perfil **Local Debug** para ambos e pressione **F5**. Swagger local: http://localhost:54392/swagger. Gere o token pelo endpoint `POST /api/v1/auth/token` ou pelo script, como acima.
-
-Breakpoints úteis: `DocumentsController.Upload`, `OutboxDispatcher.DispatchOneAsync`, `RabbitConsumers.ConsumeAsync` e `EventProcessor.ProcessAsync`. Envie um XML novo para percorrer todo o fluxo; repetir conteúdo já recebido não inicia outro processamento. Mantenha o worker Docker parado durante a depuração para que ele não consuma as mensagens antes do worker local. Pausas longas podem expirar leases ou conexões e provocar retries/reentregas.
-
-Para executar sem debugger em dois terminais, use `dotnet run --project src/FiscalDocuments.Api --launch-profile "Local Debug"` e `dotnet run --project src/FiscalDocuments.Worker --launch-profile "Local Debug"`. Para voltar ao modo Docker, encerre os processos locais e execute `docker compose up -d`.
+Esse modo usa SQL `localhost:1433` e RabbitMQ `localhost:5673` com as credenciais de `.env`. Inicie ambos os perfis **Local Debug**. Para voltar à infraestrutura nativa, reexecute `Initialize-Local.ps1` com seus parâmetros locais. Para reconciliar DLQ no Docker: `docker compose run --rm worker --reconcile-dlq`.
 
 ## Fluxo e organização
 
@@ -107,7 +139,7 @@ Upload de exemplo, incluindo arquivo inválido e duplicado:
 No Windows PowerShell 5.1, use `curl.exe` no lugar de `curl` para chamar o executável, pois `curl` é um alias de `Invoke-WebRequest`.
 
 ```powershell
-curl -X POST http://localhost:8080/api/v1/documents `
+curl.exe -X POST http://localhost:54392/api/v1/documents `
   -H "Authorization: Bearer $token" `
   -F "files=@samples/nfe.xml" -F "files=@samples/cte.xml" `
   -F "files=@samples/nfse.xml" -F "files=@samples/invalid.xml" `
@@ -121,7 +153,7 @@ Cada aceitação tem sua própria transação. Se a conexão cair, houver erro d
 Filtros: `from` inclusivo, `to` exclusivo, `issuerCnpj` exato (com ou sem pontuação), `state` em maiúsculas, `type` (`NFe`, `CTe`, `NFSe`), `status`, `pageSize` (1–100; padrão 20) e `cursor`. O filtro de identificador também aceita CPF de emitente NFSe. Datas são consultadas como instantes UTC; a competência preserva o mês local informado no XML. Ordenação por emissão e ID, ambos decrescentes. Reutilize `nextCursor` mantendo os filtros.
 
 ```powershell
-Invoke-RestMethod 'http://localhost:8080/api/v1/documents?state=SP&pageSize=20' -Headers $headers
+Invoke-RestMethod 'http://localhost:54392/api/v1/documents?state=SP&pageSize=20' -Headers $headers
 ```
 
 ### Substituição, concorrência e idempotência
@@ -134,14 +166,14 @@ Para substituir, espere `Completed` ou `Failed`. Enquanto houver extração, res
 
 ```powershell
 $id = 'ID-RETORNADO-PELO-UPLOAD'
-$details = Invoke-RestMethod "http://localhost:8080/api/v1/documents/$id" -Headers $headers
+$details = Invoke-RestMethod "http://localhost:54392/api/v1/documents/$id" -Headers $headers
 $mutationHeaders = @{
   Authorization = "Bearer $token"
   'If-Match' = $details.document.eTag
   'Idempotency-Key' = [guid]::NewGuid().ToString()
 }
 $newXml = (Get-Content -Raw ./samples/nfe.xml).Replace('150.25', '175.00')
-Invoke-RestMethod "http://localhost:8080/api/v1/documents/$id" -Method Put `
+Invoke-RestMethod "http://localhost:54392/api/v1/documents/$id" -Method Put `
   -Headers $mutationHeaders -ContentType 'application/xml' -Body ([Text.Encoding]::UTF8.GetBytes($newXml))
 ```
 
@@ -181,7 +213,7 @@ Uploads são lidos por `MultipartReader`, sem buffering de arquivos originais em
 Após investigar/corrigir a causa, reconcilie a DLQ manualmente:
 
 ```powershell
-docker compose run --rm worker --reconcile-dlq
+dotnet run --project src/FiscalDocuments.Worker --launch-profile "Local Debug" -- --reconcile-dlq
 ```
 
 O comando lê até 100 entregas por DLQ, registra a falha atual em SQL e só então confirma a entrega. Mensagens de execuções antigas, documentos excluídos ou já concluídos não alteram o estado atual. Envelope inválido fica retido para inspeção segura pelo operador. A falha permanece em `ProcessingFailures` para diagnóstico.
@@ -190,7 +222,7 @@ Então reprocesse a execução atual:
 
 ```powershell
 $replayHeaders = @{ Authorization = "Bearer $token"; 'Idempotency-Key' = [guid]::NewGuid().ToString() }
-Invoke-RestMethod "http://localhost:8080/api/v1/documents/$id/reprocess" -Method Post -Headers $replayHeaders
+Invoke-RestMethod "http://localhost:54392/api/v1/documents/$id/reprocess" -Method Post -Headers $replayHeaders
 ```
 
 Uma falha durante commit SQL pode ter resultado desconhecido. A unidade de trabalho executa a transação completa pela estratégia de resiliência EF Core; recebimentos consultam identidade/recibos, comandos HTTP consultam a operação idempotente, e consumidores consultam inbox/execução antes de repetir os efeitos.
@@ -205,16 +237,23 @@ dotnet tool restore
 dotnet ef migrations has-pending-model-changes --project src/FiscalDocuments.Infrastructure --no-build
 ```
 
-Os testes de integração criam SQL Server e RabbitMQ reais com Testcontainers; Docker é necessário. Não há substituição por EF InMemory/SQLite, pois os testes precisam verificar `rowversion`, índices, transações, leases e mensagens reais. A CI executa a suíte em Linux com Docker e publica TRX.
+Os testes usam SQL Server e RabbitMQ reais instalados localmente; não iniciam containers e não pulam testes quando os serviços estão indisponíveis. O comando `dotnet test FiscalDocuments.sln` usa LocalDB e RabbitMQ `localhost:5672`, usuário/senha `guest`/`guest`, vhost `/`. Não há substituição por EF InMemory/SQLite, pois os testes verificam `rowversion`, índices, transações, leases e mensagens reais.
 
-Para executar a integração HTTP/SQL em um SQL Server existente ou LocalDB, sem RabbitMQ:
+Para outra instalação, configure as variáveis somente no terminal que executa os testes:
 
 ```powershell
-$env:FISCAL_TEST_SQL_CONNECTION = 'Server=(localdb)\MSSQLLocalDB;Integrated Security=true;TrustServerCertificate=true'
-dotnet test tests/FiscalDocuments.IntegrationTests --filter 'TestCategory=Sql'
+$env:FISCAL_TEST_SQL_CONNECTION = 'Server=.\SQLEXPRESS;Integrated Security=true;TrustServerCertificate=true'
+$env:FISCAL_TEST_RABBIT_HOST = 'localhost'
+$env:FISCAL_TEST_RABBIT_PORT = '5672'
+$env:FISCAL_TEST_RABBIT_USERNAME = 'seu-usuario'
+$env:FISCAL_TEST_RABBIT_PASSWORD = 'sua-senha'
+$env:FISCAL_TEST_RABBIT_VIRTUAL_HOST = '/'
+dotnet test FiscalDocuments.sln
 ```
 
-A fixture cria e remove apenas um banco exclusivo `FiscalTests_<guid>`; a conta deve poder criar bancos de teste. Os testes `Rabbit` continuam exigindo Docker. Para somente unitários: `dotnet test tests/FiscalDocuments.UnitTests`.
+A conexão SQL dos testes deve permitir criar/remover bancos. Cada fixture usa um banco exclusivo `FiscalTests_<guid>`. As fixtures RabbitMQ usam prefixos exclusivos `fiscal_tests_<guid>` e removem apenas suas próprias filas/exchanges; a conta precisa de permissões configure/read/write nesse vhost. Testes não usam nem limpam filas da aplicação. Fixtures XML independentes ficam em `tests/Fixtures`, portanto editar `samples/` não altera os testes.
+
+Para somente unitários: `dotnet test tests/FiscalDocuments.UnitTests`. Para HTTP sem serviços: `dotnet test tests/FiscalDocuments.IntegrationTests --filter 'TestCategory=Http'`. Para integração SQL sem RabbitMQ: `dotnet test tests/FiscalDocuments.IntegrationTests --filter 'TestCategory=Sql'`. A CI Linux fornece SQL/RabbitMQ por service containers e informa as mesmas variáveis explicitamente; Testcontainers não faz parte da solução.
 
 Cobertura principal: três layouts, sanitização, XXE, duplicidade simultânea/lote, rollback, substituição condicionada, ETag, chave idempotente, reenvio antigo, exclusão com mensagem em trânsito, filtros/cursor, JWT/Swagger, retry real, publicação sem rota, redelivery após commit e reconciliação da DLQ.
 

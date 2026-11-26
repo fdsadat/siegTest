@@ -23,7 +23,7 @@ public sealed class RabbitConsumers(IServiceScopeFactory scopes, RabbitBroker br
                 await using var channel = await broker.ConsumerChannelAsync(ct);
                 var consumer = new AsyncEventingBasicConsumer(channel);
                 consumer.ReceivedAsync += async (_, delivery) => await ConsumeAsync(eventType, channel, delivery, ct);
-                await channel.BasicConsumeAsync(RabbitBroker.Queue(eventType), false, consumer, ct);
+                await channel.BasicConsumeAsync(broker.Queue(eventType), false, consumer, ct);
                 while (channel.IsOpen && !ct.IsCancellationRequested) await Task.Delay(1000, ct);
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested) { break; }
@@ -59,8 +59,8 @@ public sealed class RabbitConsumers(IServiceScopeFactory scopes, RabbitBroker br
                 var code = exception is PermanentProcessingException known ? known.Code : permanent ? "invalid_event" : "transient_processing_failure";
                 if (!permanent && attempt < RabbitBroker.RetryDelays.Length)
                 {
-                    var retryQueue = RabbitBroker.Queue(eventType) + ".retry." + (attempt + 1);
-                    await broker.PublishAsync(payload, retryQueue, RabbitBroker.RetryExchange, attempt + 1, code, ct);
+                    var retryQueue = broker.Queue(eventType) + ".retry." + (attempt + 1);
+                    await broker.PublishAsync(payload, retryQueue, broker.RetryExchange, attempt + 1, code, ct);
                 }
                 else
                 {
@@ -69,7 +69,7 @@ public sealed class RabbitConsumers(IServiceScopeFactory scopes, RabbitBroker br
                         await using var failureScope = scopes.CreateAsyncScope();
                         await failureScope.ServiceProvider.GetRequiredService<EventProcessor>().FailAsync(message, code, ct);
                     }
-                    await broker.PublishAsync(payload, RabbitBroker.Queue(eventType), RabbitBroker.DeadExchange, attempt, code, ct);
+                    await broker.PublishAsync(payload, broker.Queue(eventType), broker.DeadExchange, attempt, code, ct);
                     logger.LogWarning("Event {EventId} moved to DLQ; code {ErrorCode}", message?.EventId, code);
                 }
             }
@@ -105,7 +105,7 @@ public static class DlqReconciler
         {
             for (var i = 0; i < 100; i++)
             {
-                var delivery = await channel.BasicGetAsync(RabbitBroker.Queue(eventType) + ".dead", false, ct);
+                var delivery = await channel.BasicGetAsync(broker.Queue(eventType) + ".dead", false, ct);
                 if (delivery is null) break;
                 try
                 {
