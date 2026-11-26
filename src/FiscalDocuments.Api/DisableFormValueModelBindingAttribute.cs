@@ -3,8 +3,8 @@ using Microsoft.AspNetCore.Mvc.ModelBinding;
 
 namespace FiscalDocuments.Api;
 
-// MVC's form value providers otherwise read/buffer the multipart body before the
-// streaming action, potentially spooling an unmasked original to a temp file.
+// Os provedores de valores de formulário do MVC leem e armazenam o corpo multipart antes
+// da ação de leitura direta, podendo gravar o XML original sem máscara em um arquivo temporário.
 [AttributeUsage(AttributeTargets.Method)]
 public sealed class DisableFormValueModelBindingAttribute : Attribute, IResourceFilter
 {

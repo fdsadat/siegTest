@@ -22,7 +22,7 @@ public sealed class DocumentHandlers(IWriteStore store, IXmlDocuments xml, IFing
                     if (existing is not null)
                     {
                         await store.LockAsync($"document:{existing.Id}", ct);
-                        // Re-read after acquiring coordination with delete/replace/replay.
+                        // Relê o documento após obter o bloqueio de coordenação com exclusão, substituição e reprocessamento.
                         existing = (await store.DocumentAsync(existing.Id, ct))!;
                         if (existing.IsDeleted) throw new AppException("document_deleted", 409);
                         if (await store.ReceiptAsync(existing.Id, parsed.ContentHmac, ct) is null)
@@ -41,7 +41,7 @@ public sealed class DocumentHandlers(IWriteStore store, IXmlDocuments xml, IFing
                     return new Acceptance(document.Id, "Accepted", document.ContentRevision, processing.Status, true);
                 }, ct);
             }
-            catch (DuplicateWriteException) when (attempt < 2) { /* Resolve a simultaneous successful insertion. */ }
+            catch (DuplicateWriteException) when (attempt < 2) { /* Resolve uma inserção simultânea que foi concluída com sucesso. */ }
         }
     }
 
@@ -64,7 +64,7 @@ public sealed class DocumentHandlers(IWriteStore store, IXmlDocuments xml, IFing
                 await store.ClearSummaryAsync(document.Id, ct);
                 store.Add(new UploadReceipt { DocumentId = document.Id, ContentHmac = parsed.ContentHmac, ReceivedAt = clock.GetUtcNow() });
                 store.Add(IntegrationEvent.Create(IntegrationEvent.Received, document, processing, clock.GetUtcNow(), request.CorrelationId));
-                // The next ETag is SQL-generated; GET the Location to obtain it after acceptance.
+                // O próximo ETag é gerado pelo SQL Server; consulte o endereço de Location via GET após a aceitação.
                 return new MutationResult(202, new { document.Id, document.ContentRevision, processing.ProcessingId }, Location: $"/api/v1/documents/{document.Id}");
             }, ct);
     }

@@ -64,8 +64,8 @@ public sealed class EventProcessor(IWriteStore store, IXmlDocuments xml, TimePro
             var processing = await store.ProcessingAsync(document.Id, ct);
             if (!processing.Matches(message.ContentRevision, message.ProcessingId) || processing.Status == ProcessingStatus.Completed)
                 return false;
-            // A delivery can reach DLQ after its business transaction committed but
-            // its ACK was lost. Reconciliation must not fail an already-completed stage.
+            // Uma entrega pode chegar à DLQ após o commit da transação de negócio,
+            // caso seu ACK se perca. A reconciliação não deve marcar como falha uma etapa já concluída.
             if (await store.HasInboxAsync(Consumer(message.EventType), message.EventId, ct)) return false;
             if (message.EventType == IntegrationEvent.Received && processing.Status == ProcessingStatus.PendingSummary) return false;
             if (processing.Status != ProcessingStatus.Failed) processing.Fail(errorCode, clock.GetUtcNow());

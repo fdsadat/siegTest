@@ -180,7 +180,7 @@ public sealed class RabbitTests : SqlFixture
             Assert.That(delivery, Is.Not.Null);
             var message = JsonSerializer.Deserialize<IntegrationEvent>(delivery!.Body.Span, JsonDefaults.Options)!;
             await InScopeAsync(s => s.GetRequiredService<EventProcessor>().ProcessAsync(message, CancellationToken.None));
-            // Deliberately close without ACK after commit.
+            // Fecha o canal intencionalmente sem ACK após o commit.
         }
         await using var redeliveryChannel = await broker.ConsumerChannelAsync(CancellationToken.None);
         BasicGetResult? redelivery = null;

@@ -83,7 +83,7 @@ public sealed class DocumentTests : SqlFixture
         var before = await DetailsAsync(accepted.DocumentId);
         var received = await EventAsync(IntegrationEvent.Received);
         await ProcessAsync(received);
-        await ProcessAsync(received); // crash after SQL commit, before ACK
+        await ProcessAsync(received); // Simula uma queda após o commit SQL, antes do ACK.
         var intermediate = await DetailsAsync(accepted.DocumentId);
         Assert.That(intermediate.Document.ProcessingStatus, Is.EqualTo(ProcessingStatus.PendingSummary));
         var falselyFailed = await InScopeAsync(s => s.GetRequiredService<EventProcessor>().FailAsync(received, "reconciled_from_dlq", CancellationToken.None));

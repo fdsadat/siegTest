@@ -34,8 +34,8 @@ public sealed class SqlWriteStore(FiscalDbContext db) : IWriteStore
         });
     }
 
-    // All document mutations, consumer commits and replays take this same short,
-    // transaction-owned coordination lock. HTTP concurrency still uses rowversion.
+    // Alterações de documentos, commits dos consumidores e reprocessamentos usam o mesmo bloqueio
+    // de coordenação, de curta duração e vinculado à transação. A concorrência HTTP continua usando rowversion.
     public async Task LockAsync(string resource, CancellationToken ct)
     {
         await db.Database.ExecuteSqlInterpolatedAsync($"""

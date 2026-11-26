@@ -60,7 +60,7 @@ public sealed class DevelopmentTokenTests
         });
 
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(body.TokenType, body.AccessToken);
-        // Validation runs before SQL: 428 proves the issued token passed authentication and documents.write authorization.
+        // A validação ocorre antes do SQL: o status 428 comprova que o token passou pela autenticação e pela autorização documents.write.
         using var mutation = await client.DeleteAsync($"/api/v1/documents/{Guid.NewGuid()}");
         Assert.That((int)mutation.StatusCode, Is.EqualTo(428));
     }

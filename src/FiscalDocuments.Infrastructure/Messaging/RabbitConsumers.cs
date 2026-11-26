@@ -37,7 +37,7 @@ public sealed class RabbitConsumers(IServiceScopeFactory scopes, RabbitBroker br
 
     private async Task ConsumeAsync(string eventType, IChannel channel, BasicDeliverEventArgs delivery, CancellationToken ct)
     {
-        // RabbitMQ owns delivery memory; copy it before any asynchronous continuation.
+        // A memória da entrega pertence ao RabbitMQ; copie os dados antes de qualquer continuação assíncrona.
         var payload = Encoding.UTF8.GetString(delivery.Body.ToArray());
         IntegrationEvent? message = null;
         try
@@ -73,11 +73,11 @@ public sealed class RabbitConsumers(IServiceScopeFactory scopes, RabbitBroker br
                     logger.LogWarning("Event {EventId} moved to DLQ; code {ErrorCode}", message?.EventId, code);
                 }
             }
-            // Also safe after a confirmed durable transfer to retry/DLQ, even though
-            // business processing has not succeeded. Never ACK an unconfirmed handoff.
+            // Também é seguro após a transferência durável confirmada para uma fila de nova tentativa ou para a DLQ,
+            // mesmo sem sucesso no processamento de negócio. Nunca envie ACK antes de confirmar a transferência.
             await channel.BasicAckAsync(delivery.DeliveryTag, false, ct);
         }
-        catch (OperationCanceledException) when (ct.IsCancellationRequested) { /* Close channel => redelivery. */ }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested) { /* Fechar o canal provoca a reentrega. */ }
         catch (Exception)
         {
             logger.LogWarning("Delivery handoff/commit unconfirmed; returning message to broker");

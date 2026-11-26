@@ -17,8 +17,12 @@ public sealed class ApiExceptionHandler(ILogger<ApiExceptionHandler> logger) : I
             InvalidDataException => (400, "invalid_multipart"),
             _ => (500, "internal_error")
         };
-        if (status >= 500) logger.LogError("Request failed with code {ErrorCode}; trace {TraceId}; type {ExceptionType}; stack {Stack}",
+        if (status >= 500)
+        {
+            logger.LogError("Request failed with code {ErrorCode}; trace {TraceId}; type {ExceptionType}; stack {Stack}",
             code, httpContext.TraceIdentifier, exception.GetType().Name, exception.StackTrace);
+        }
+
         httpContext.Response.StatusCode = status;
         await httpContext.Response.WriteAsJsonAsync(new ProblemDetails
         {

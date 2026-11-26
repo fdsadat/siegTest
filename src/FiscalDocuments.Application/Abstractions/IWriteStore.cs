@@ -2,8 +2,8 @@ using FiscalDocuments.Domain;
 
 namespace FiscalDocuments.Application;
 
-// A transaction-scoped port. Application code owns use cases and domain transitions;
-// Infrastructure supplies SQL transactions, coordination locks and persistence.
+// Porta com escopo de transação. A aplicação controla os casos de uso e as transições do domínio;
+// a infraestrutura fornece transações SQL, bloqueios de coordenação e persistência.
 public interface IWriteStore
 {
     Task<T> TransactionAsync<T>(Func<Task<T>> action, CancellationToken ct);

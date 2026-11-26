@@ -35,7 +35,7 @@ public sealed class OutboxDispatcher(IServiceScopeFactory scopes, RabbitBroker b
         var now = clock.GetUtcNow();
         // Tempo da coleira, que pode ser adiado se necessario.
         var leaseUntil = now.AddMinutes(2);
-        // The captured lease makes an ambiguous command retry idempotent.
+        // O identificador da reserva permite repetir de forma idempotente um comando com resultado incerto.
         await db.Database.ExecuteSqlInterpolatedAsync($"""
             IF NOT EXISTS (SELECT 1 FROM OutboxMessages WHERE LeaseId={lease})
             BEGIN

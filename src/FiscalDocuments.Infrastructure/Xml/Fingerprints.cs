@@ -18,7 +18,7 @@ public sealed class Fingerprints : IFingerprints
     public string Hash(string value) => Hash(Encoding.UTF8.GetBytes(value));
     public string TaxId(string value)
     {
-        // Accept punctuation, reject arbitrary text rather than silently deleting it.
+        // Aceita pontuação e rejeita texto arbitrário, em vez de removê-lo silenciosamente.
         if (value.Any(c => !char.IsAsciiDigit(c) && c is not '.' and not '/' and not '-' and not ' '))
             throw new AppException("invalid_tax_id");
         var digits = new string(value.Where(char.IsAsciiDigit).ToArray());

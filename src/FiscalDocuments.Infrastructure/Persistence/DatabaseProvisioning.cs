@@ -13,7 +13,7 @@ public static class DatabaseProvisioning
         if (password.Length < 16 || password.Length > 128) throw new InvalidOperationException("Database application password requires 16 to 128 characters.");
         await using var scope = services.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<FiscalDbContext>();
-        // Fixed identifier and SQL-side quoting of the parameterized secret; no password in command text.
+        // Identificador fixo e escape do segredo parametrizado no SQL; a senha não aparece no texto do comando.
         await db.Database.ExecuteSqlInterpolatedAsync($"""
             IF SUSER_ID('fiscal_app') IS NULL
             BEGIN

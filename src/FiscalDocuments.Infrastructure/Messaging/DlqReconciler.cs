@@ -7,7 +7,7 @@ namespace FiscalDocuments.Infrastructure.Messaging;
 
 public static class DlqReconciler
 {
-    // Explicit operator command, not an always-on collector. SQL commit precedes ACK.
+    // Comando explícito do operador, sem coleta contínua. O commit SQL ocorre antes do ACK.
     public static async Task<int> ReconcileAsync(IServiceProvider services, CancellationToken ct = default)
     {
         var broker = services.GetRequiredService<RabbitBroker>();

@@ -24,15 +24,24 @@ public sealed class DocumentsController(ISender sender) : ControllerBase
     [ProducesResponseType(typeof(BatchResponse), 200)]
     public async Task<IActionResult> Upload(CancellationToken ct)
     {
-        // Never use IFormFile/ReadFormAsync: ASP.NET may spool original fiscal XML to disk.
+        // Nunca use IFormFile/ReadFormAsync: o ASP.NET pode gravar o XML fiscal original em disco.
         if (!MediaTypeHeaderValue.TryParse(Request.ContentType, out var contentType) ||
             !contentType.MediaType.Equals("multipart/form-data", StringComparison.OrdinalIgnoreCase))
+        {
+            // 415 Tipo de mídia não suportado
             throw new AppException("multipart_required", 415);
+        }
+
         var boundary = HeaderUtilities.RemoveQuotes(contentType.Boundary).Value;
-        if (string.IsNullOrWhiteSpace(boundary) || boundary.Length > 128) throw new AppException("invalid_multipart_boundary");
+        if (string.IsNullOrWhiteSpace(boundary) || boundary.Length > 128)
+        {
+            throw new AppException("invalid_multipart_boundary");
+        }
         var reader = new MultipartReader(boundary, Request.Body)
         {
-            HeadersCountLimit = 16, HeadersLengthLimit = 8192, BodyLengthLimit = 21 * 1024 * 1024
+            HeadersCountLimit = 16, 
+            HeadersLengthLimit = 8192, 
+            BodyLengthLimit = 21 * 1024 * 1024
         };
         var results = new List<BatchItem>();
         MultipartSection? section;
@@ -64,10 +73,19 @@ public sealed class DocumentsController(ISender sender) : ControllerBase
                 var accepted = await sender.Send(new ReceiveDocument(bytes, HttpContext.TraceIdentifier), ct);
                 results.Add(new BatchItem(inputIndex, accepted.Disposition == "Accepted" ? 202 : 200, accepted, null));
             }
-            catch (AppException exception) { results.Add(new BatchItem(inputIndex, exception.StatusCode, null, exception.Code)); }
-            catch (DomainException exception) { results.Add(new BatchItem(inputIndex, 409, null, exception.Code)); }
+            catch (AppException exception) 
+            { 
+                results.Add(new BatchItem(inputIndex, exception.StatusCode, null, exception.Code)); 
+            }
+            catch (DomainException exception) 
+            {
+                results.Add(new BatchItem(inputIndex, 409, null, exception.Code)); 
+            }
         }
-        if (results.Count == 0) throw new AppException("empty_batch");
+        if (results.Count == 0)
+        {
+            throw new AppException("empty_batch");
+        }
         return Ok(new BatchResponse(results));
     }
 
@@ -76,14 +94,20 @@ public sealed class DocumentsController(ISender sender) : ControllerBase
     public async Task<ActionResult<Page<DocumentItem>>> List([FromQuery] DateTimeOffset? from, [FromQuery] DateTimeOffset? to,
         [FromQuery] string? issuerCnpj, [FromQuery] string? state, [FromQuery] DocumentType? type,
         [FromQuery] ProcessingStatus? status, [FromQuery] int pageSize = 20, [FromQuery] string? cursor = null, CancellationToken ct = default)
-        => Ok(await sender.Send(new ListDocuments(new DocumentFilter(from, to, issuerCnpj, state, type, status, pageSize, cursor)), ct));
+    {
+        return Ok(await sender.Send(new ListDocuments(new DocumentFilter(from, to, issuerCnpj, state, type, status, pageSize, cursor)), ct));
+    }
 
     [HttpGet("{id:guid}")]
     [Authorize(Policy = "documents.read")]
     public async Task<ActionResult<DocumentDetails>> Get(Guid id, CancellationToken ct)
     {
         var document = await sender.Send(new GetDocument(id), ct);
-        if (document is null) throw new AppException("document_not_found", 404);
+        if (document is null)
+        {
+            throw new AppException("document_not_found", 404);
+        }
+
         Response.Headers.ETag = document.Document.ETag;
         return Ok(document);
     }
@@ -97,26 +121,49 @@ public sealed class DocumentsController(ISender sender) : ControllerBase
     {
         var (bytes, size) = await ReadBoundedAsync(Request.Body, ct);
         if (size > RequestValidation.MaxFileBytes) throw new AppException("file_too_large", 413);
-        return Mutation(await sender.Send(new ReplaceDocument(id, bytes, Request.Headers.IfMatch,
-            Request.Headers["Idempotency-Key"], Subject(), HttpContext.TraceIdentifier), ct));
+        return Mutation(await sender.Send(
+            new ReplaceDocument(
+                id, 
+                bytes, 
+                Request.Headers.IfMatch, 
+                Request.Headers["Idempotency-Key"], 
+                Subject(), 
+                HttpContext.TraceIdentifier)
+            , ct));
     }
 
     [HttpDelete("{id:guid}")]
     [Authorize(Policy = "documents.write")]
-    public async Task<IActionResult> Delete(Guid id, CancellationToken ct) => Mutation(await sender.Send(new DeleteDocument(id,
-        Request.Headers.IfMatch, Request.Headers["Idempotency-Key"], Subject()), ct));
+    public async Task<IActionResult> Delete(Guid id, CancellationToken ct)
+    {
+        return Mutation(await sender.Send(new DeleteDocument(id,
+            Request.Headers.IfMatch, Request.Headers["Idempotency-Key"], Subject()), ct));
+    }
 
     [HttpPost("{id:guid}/reprocess")]
     [Authorize(Policy = "operations.replay")]
-    public async Task<IActionResult> Reprocess(Guid id, CancellationToken ct) => Mutation(await sender.Send(new ReprocessDocument(id,
-        Request.Headers["Idempotency-Key"], Subject(), HttpContext.TraceIdentifier), ct));
+    public async Task<IActionResult> Reprocess(Guid id, CancellationToken ct)
+    {
+        return Mutation(await sender.Send(new ReprocessDocument(id, Request.Headers["Idempotency-Key"], Subject(), HttpContext.TraceIdentifier), ct));
+    }
 
-    private string Subject() => User.FindFirstValue("sub") ?? throw new AppException("missing_subject", 401);
+    private string Subject()
+    {
+        return User.FindFirstValue("sub") ?? throw new AppException("missing_subject", 401);
+    }
+
     private IActionResult Mutation(MutationResult result)
     {
         if (result.ETag is not null) Response.Headers.ETag = result.ETag;
         if (result.Location is not null) Response.Headers.Location = result.Location;
-        return result.Body is null ? StatusCode(result.StatusCode) : StatusCode(result.StatusCode, result.Body);
+        if (result.Body is null)
+        {
+            return StatusCode(result.StatusCode);
+        }
+        else
+        {
+            return StatusCode(result.StatusCode, result.Body);
+        }
     }
 
     private static async Task<(byte[] Bytes, long Size)> ReadBoundedAsync(Stream stream, CancellationToken ct)
@@ -135,6 +182,9 @@ public sealed class DocumentsController(ISender sender) : ControllerBase
             }
             return (size > RequestValidation.MaxFileBytes ? [] : output.ToArray(), size);
         }
-        finally { ArrayPool<byte>.Shared.Return(buffer, clearArray: true); }
+        finally 
+        { 
+            ArrayPool<byte>.Shared.Return(buffer, clearArray: true); 
+        }
     }
 }

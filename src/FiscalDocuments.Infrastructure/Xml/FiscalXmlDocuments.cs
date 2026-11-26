@@ -84,15 +84,15 @@ public sealed class FiscalXmlDocuments(IFingerprints fingerprints) : IXmlDocumen
             else throw new AppException("unsupported_xml_layout");
 
             if (!IsState(state)) throw new AppException("invalid_state");
-            // Fiscal timestamps must include an explicit timezone; never depend on the host timezone.
+            // As datas e horas fiscais devem incluir um fuso horário explícito; nunca dependa do fuso do servidor.
             if (!(issued.EndsWith('Z') || issued.Length >= 6 && issued[^6] is '+' or '-' && issued[^3] == ':') ||
                 !DateTimeOffset.TryParse(issued, CultureInfo.InvariantCulture, DateTimeStyles.None, out var issuedAt))
                 throw new AppException("invalid_issue_date");
             var amount = Amount(total);
             _ = fingerprints.TaxId(issuer);
             var maskedIssuer = new string('*', issuer.Length);
-            // Whitelist projection: free text, access keys, references, signatures, certificates
-            // and arbitrary input attributes never cross the persistence boundary.
+            // Projeção apenas dos campos permitidos: texto livre, chaves de acesso, referências, assinaturas,
+            // certificados e atributos arbitrários da entrada nunca são persistidos.
             var sanitized = new XElement("FiscalDocument", new XAttribute("schema", "1"),
                 new XElement("Type", type.ToString()), new XElement("Issuer", maskedIssuer),
                 new XElement("IssuedAt", issuedAt.ToString("O", CultureInfo.InvariantCulture)),
@@ -128,7 +128,7 @@ public sealed class FiscalXmlDocuments(IFingerprints fingerprints) : IXmlDocumen
             DtdProcessing = DtdProcessing.Prohibit, XmlResolver = null, MaxCharactersInDocument = RequestValidation.MaxFileBytes,
             MaxCharactersFromEntities = 0, IgnoreComments = true, IgnoreProcessingInstructions = true
         });
-        // Enforce a depth limit before materializing the bounded XML tree.
+        // Aplica um limite de profundidade antes de materializar a árvore XML de tamanho limitado.
         var document = new XDocument();
         using var writer = document.CreateWriter();
         while (reader.Read())

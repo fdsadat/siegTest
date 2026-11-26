@@ -80,7 +80,7 @@ public sealed class RabbitBroker(IOptions<RabbitOptions> options) : IAsyncDispos
             {
                 Persistent = true, ContentType = "application/json", Headers = headers
             };
-            // With confirmation tracking, this await rejects broker nacks and mandatory returns.
+            // Com o rastreamento de confirmações, este await rejeita NACKs do RabbitMQ e devoluções de mensagens publicadas com mandatory.
             await publisher.BasicPublishAsync(exchange, routingKey, true, properties, Encoding.UTF8.GetBytes(payload), timeout.Token);
         }
         catch

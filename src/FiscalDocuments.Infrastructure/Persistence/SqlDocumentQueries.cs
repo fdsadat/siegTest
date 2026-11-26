@@ -55,7 +55,7 @@ public sealed class SqlDocumentQueries(FiscalDbContext db, IFingerprints fingerp
 
     public async Task<DocumentDetails?> DetailsAsync(Guid id, CancellationToken ct)
     {
-        // One query gives a coherent view of payload, processing state and summary.
+        // Uma única consulta fornece uma visão consistente do conteúdo, do estado de processamento e do resumo.
         var row = await (from document in db.Documents.AsNoTracking()
                          join processing in db.Processing.AsNoTracking() on document.Id equals processing.DocumentId
                          join summary in db.Summaries.AsNoTracking() on document.Id equals summary.DocumentId into summaries

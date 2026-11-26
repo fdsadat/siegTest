@@ -8,7 +8,7 @@ public sealed class DocumentOperationFilter : IOperationFilter
 {
     public void Apply(OpenApiOperation operation, OperationFilterContext context)
     {
-        // An empty requirement overrides the global Bearer requirement with anonymous access.
+        // Um requisito vazio substitui a exigência global de Bearer e permite acesso anônimo.
         if (context.ApiDescription.ActionDescriptor.EndpointMetadata.OfType<IAllowAnonymous>().Any())
             operation.Security = [new OpenApiSecurityRequirement()];
         var method = context.ApiDescription.HttpMethod;
