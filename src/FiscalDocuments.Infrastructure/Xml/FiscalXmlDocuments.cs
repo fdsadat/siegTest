@@ -124,13 +124,6 @@ public sealed class FiscalXmlDocuments(IFingerprints fingerprints) : IXmlDocumen
         }
     }
 
-    /// <summary>
-    /// 
-    /// </summary>
-    /// <param name="xml"></param>
-    /// <returns></returns>
-    /// <exception cref="AppException"></exception>
-    /// <exception cref="PermanentProcessingException"></exception>
     public ExtractedData ExtractSanitized(string xml)
     {
         try

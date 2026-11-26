@@ -11,8 +11,11 @@ namespace FiscalDocuments.Infrastructure.Messaging;
 
 public sealed class RabbitConsumers(IServiceScopeFactory scopes, RabbitBroker broker, ILogger<RabbitConsumers> logger) : BackgroundService
 {
-    protected override Task ExecuteAsync(CancellationToken stoppingToken) => Task.WhenAll(
+    protected override Task ExecuteAsync(CancellationToken stoppingToken)
+    {
+        return Task.WhenAll(
         RunAsync(IntegrationEvent.Received, stoppingToken), RunAsync(IntegrationEvent.Processed, stoppingToken));
+    }
 
     private async Task RunAsync(string eventType, CancellationToken ct)
     {

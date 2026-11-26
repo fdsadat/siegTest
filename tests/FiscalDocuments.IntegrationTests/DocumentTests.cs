@@ -17,15 +17,31 @@ namespace FiscalDocuments.IntegrationTests;
 [TestFixture, NonParallelizable, Category("Sql")]
 public sealed class DocumentTests : SqlFixture
 {
-    private async Task<Acceptance> ReceiveAsync(byte[]? bytes = null) => await InScopeAsync(services =>
-        services.GetRequiredService<ISender>().Send(new ReceiveDocument(bytes ?? Sample(), "integration")));
-    private async Task<DocumentDetails> DetailsAsync(Guid id) => (await Client.GetFromJsonAsync<DocumentDetails>($"/api/v1/documents/{id}", JsonDefaults.Options))!;
-    private async Task<IntegrationEvent> EventAsync(string type) => await InScopeAsync(async services =>
+    private async Task<Acceptance> ReceiveAsync(byte[]? bytes = null)
     {
-        var record = await services.GetRequiredService<FiscalDbContext>().Outbox.AsNoTracking().SingleAsync(o => o.EventType == type);
-        return JsonSerializer.Deserialize<IntegrationEvent>(record.Payload, JsonDefaults.Options)!;
-    });
-    private Task<bool> ProcessAsync(IntegrationEvent message) => InScopeAsync(services => services.GetRequiredService<EventProcessor>().ProcessAsync(message, CancellationToken.None));
+        return await InScopeAsync(services =>
+        services.GetRequiredService<ISender>().Send(new ReceiveDocument(bytes ?? Sample(), "integration")));
+    }
+
+    private async Task<DocumentDetails> DetailsAsync(Guid id)
+    {
+        return (await Client.GetFromJsonAsync<DocumentDetails>($"/api/v1/documents/{id}", JsonDefaults.Options))!;
+    }
+
+    private async Task<IntegrationEvent> EventAsync(string type)
+    {
+        return await InScopeAsync(async services =>
+        {
+            var record = await services.GetRequiredService<FiscalDbContext>().Outbox.AsNoTracking().SingleAsync(o => o.EventType == type);
+            return JsonSerializer.Deserialize<IntegrationEvent>(record.Payload, JsonDefaults.Options)!;
+        });
+    }
+
+    private Task<bool> ProcessAsync(IntegrationEvent message)
+    {
+        return InScopeAsync(services => services.GetRequiredService<EventProcessor>().ProcessAsync(message, CancellationToken.None));
+    }
+
     private async Task CompleteAsync()
     {
         await ProcessAsync(await EventAsync(IntegrationEvent.Received));

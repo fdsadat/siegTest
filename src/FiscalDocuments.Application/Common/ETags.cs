@@ -2,7 +2,11 @@ namespace FiscalDocuments.Application;
 
 public static class ETags
 {
-    public static string Format(byte[] version) => $"\"{Convert.ToBase64String(version)}\"";
+    public static string Format(byte[] version)
+    {
+        return $"\"{Convert.ToBase64String(version)}\"";
+    }
+
     public static byte[] Parse(string? value)
     {
         if (string.IsNullOrWhiteSpace(value))

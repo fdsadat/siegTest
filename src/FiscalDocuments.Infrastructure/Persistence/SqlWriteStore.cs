@@ -34,8 +34,7 @@ public sealed class SqlWriteStore(FiscalDbContext db) : IWriteStore
         });
     }
 
-    // Alterações de documentos, commits dos consumidores e reprocessamentos usam o mesmo bloqueio
-    // de coordenação, de curta duração e vinculado à transação. A concorrência HTTP continua usando rowversion.
+    // Alterações de documentos, commits dos consumidores e reprocessamentos usam um bloqueio de curta duração na transaction. O HTTP usa rowversion.
     public async Task LockAsync(string resource, CancellationToken ct)
     {
         await db.Database.ExecuteSqlInterpolatedAsync($"""
@@ -46,15 +45,41 @@ public sealed class SqlWriteStore(FiscalDbContext db) : IWriteStore
             """, ct);
     }
 
-    public Task<FiscalDocument?> DocumentAsync(Guid id, CancellationToken ct) => db.Documents.SingleOrDefaultAsync(d => d.Id == id, ct);
-    public Task<FiscalDocument?> FindIdentityAsync(DocumentType type, string identityHmac, CancellationToken ct) =>
-        db.Documents.AsNoTracking().SingleOrDefaultAsync(d => d.Type == type && d.IdentityHmac == identityHmac, ct);
-    public Task<DocumentProcessing> ProcessingAsync(Guid documentId, CancellationToken ct) => db.Processing.SingleAsync(p => p.DocumentId == documentId, ct);
-    public Task<UploadReceipt?> ReceiptAsync(Guid documentId, string contentHmac, CancellationToken ct) =>
-        db.Receipts.AsNoTracking().SingleOrDefaultAsync(r => r.DocumentId == documentId && r.ContentHmac == contentHmac, ct);
-    public Task<IdempotentOperation?> OperationAsync(string scope, CancellationToken ct) => db.Operations.SingleOrDefaultAsync(o => o.Scope == scope, ct);
-    public Task<bool> HasInboxAsync(string consumer, Guid eventId, CancellationToken ct) => db.Inbox.AnyAsync(i => i.Consumer == consumer && i.EventId == eventId, ct);
-    public Task<bool> HasFailureAsync(Guid processingId, string stage, CancellationToken ct) => db.Failures.AnyAsync(f => f.ProcessingId == processingId && f.Stage == stage, ct);
+    public Task<FiscalDocument?> DocumentAsync(Guid id, CancellationToken ct)
+    {
+        return db.Documents.SingleOrDefaultAsync(d => d.Id == id, ct);
+    }
+
+    public Task<FiscalDocument?> FindIdentityAsync(DocumentType type, string identityHmac, CancellationToken ct)
+    {
+        return db.Documents.AsNoTracking().SingleOrDefaultAsync(d => d.Type == type && d.IdentityHmac == identityHmac, ct);
+    }
+
+    public Task<DocumentProcessing> ProcessingAsync(Guid documentId, CancellationToken ct)
+    {
+        return db.Processing.SingleAsync(p => p.DocumentId == documentId, ct);
+    }
+
+    public Task<UploadReceipt?> ReceiptAsync(Guid documentId, string contentHmac, CancellationToken ct)
+    {
+        return db.Receipts.AsNoTracking().SingleOrDefaultAsync(r => r.DocumentId == documentId && r.ContentHmac == contentHmac, ct);
+    }
+
+    public Task<IdempotentOperation?> OperationAsync(string scope, CancellationToken ct)
+    {
+        return db.Operations.SingleOrDefaultAsync(o => o.Scope == scope, ct);
+    }
+
+    public Task<bool> HasInboxAsync(string consumer, Guid eventId, CancellationToken ct)
+    {
+        return db.Inbox.AnyAsync(i => i.Consumer == consumer && i.EventId == eventId, ct);
+    }
+
+    public Task<bool> HasFailureAsync(Guid processingId, string stage, CancellationToken ct)
+    {
+        return db.Failures.AnyAsync(f => f.ProcessingId == processingId && f.Stage == stage, ct);
+    }
+
     public async Task ClearSummaryAsync(Guid documentId, CancellationToken ct)
     {
         var summary = await db.Summaries.SingleOrDefaultAsync(s => s.DocumentId == documentId, ct);
@@ -63,10 +88,16 @@ public sealed class SqlWriteStore(FiscalDbContext db) : IWriteStore
             db.Summaries.Remove(summary);
         }
     }
-    public void Add<T>(T entity) where T : class => db.Add(entity);
+    public void Add<T>(T entity) where T : class
+    {
+        db.Add(entity);
+    }
 
-    private static bool ExpectedDuplicate(DbUpdateException exception) => exception.InnerException is SqlException sql
+    private static bool ExpectedDuplicate(DbUpdateException exception)
+    {
+        return exception.InnerException is SqlException sql
         && sql.Number is 2601 or 2627
         && new[] { "UX_Documents_Identity", "UX_Receipts_Content", "UX_Outbox_RunEvent", "UX_Failures_RunStage" }
             .Any(name => sql.Message.Contains(name, StringComparison.Ordinal));
+    }
 }

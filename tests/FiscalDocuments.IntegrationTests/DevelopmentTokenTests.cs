@@ -17,8 +17,9 @@ namespace FiscalDocuments.IntegrationTests;
 public sealed class DevelopmentTokenTests
 {
     private const string SigningKey = "test-only-development-token-key-0123456789abcdef";
-    private static WebApplicationFactory<Program> CreateFactory(string environment = "Development", string? authority = null) =>
-        new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
+    private static WebApplicationFactory<Program> CreateFactory(string environment = "Development", string? authority = null)
+    {
+        return new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
         {
             builder.UseEnvironment(environment);
             builder.ConfigureAppConfiguration((_, configuration) => configuration.AddInMemoryCollection(new Dictionary<string, string?>
@@ -26,11 +27,13 @@ public sealed class DevelopmentTokenTests
                 ["ConnectionStrings:SqlServer"] = "Server=127.0.0.1,1;Database=Unused;User Id=test;Password=test-only;TrustServerCertificate=true",
                 ["Privacy:HmacKey"] = Convert.ToBase64String(new byte[32]),
                 ["Jwt:SigningKey"] = SigningKey,
-                ["Jwt:Issuer"] = "test-issuer", ["Jwt:Audience"] = "test-audience",
+                ["Jwt:Issuer"] = "test-issuer",
+                ["Jwt:Audience"] = "test-audience",
                 ["Jwt:Authority"] = authority,
                 ["Database:ApplyMigrations"] = "false"
             }));
         });
+    }
 
     [Test]
     public async Task Anonymous_request_issues_a_signed_token_accepted_by_the_api()

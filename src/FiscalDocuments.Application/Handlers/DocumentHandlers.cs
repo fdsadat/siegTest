@@ -85,8 +85,9 @@ public sealed class DocumentHandlers(IWriteStore store, IXmlDocuments xml, IFing
             }, ct);
     }
 
-    public Task<MutationResult> Handle(DeleteDocument request, CancellationToken ct) =>
-        Idempotent("delete", request.Id, request.Subject, request.IdempotencyKey!, fingerprints.Hash(request.IfMatch!), async () =>
+    public Task<MutationResult> Handle(DeleteDocument request, CancellationToken ct)
+    {
+        return Idempotent("delete", request.Id, request.Subject, request.IdempotencyKey!, fingerprints.Hash(request.IfMatch!), async () =>
         {
             var document = await store.DocumentAsync(request.Id, ct);
             if (document is null || document.IsDeleted)
@@ -98,9 +99,11 @@ public sealed class DocumentHandlers(IWriteStore store, IXmlDocuments xml, IFing
             document.Delete(clock.GetUtcNow());
             return new MutationResult(204);
         }, ct);
+    }
 
-    public Task<MutationResult> Handle(ReprocessDocument request, CancellationToken ct) =>
-        Idempotent("reprocess", request.Id, request.Subject, request.IdempotencyKey!, fingerprints.Hash($"reprocess:{request.Id}"), async () =>
+    public Task<MutationResult> Handle(ReprocessDocument request, CancellationToken ct)
+    {
+        return Idempotent("reprocess", request.Id, request.Subject, request.IdempotencyKey!, fingerprints.Hash($"reprocess:{request.Id}"), async () =>
         {
             var document = await ActiveDocument(request.Id, ct);
             var processing = await store.ProcessingAsync(document.Id, ct);
@@ -114,9 +117,12 @@ public sealed class DocumentHandlers(IWriteStore store, IXmlDocuments xml, IFing
             store.Add(IntegrationEvent.Create(IntegrationEvent.Received, document, processing, clock.GetUtcNow(), request.CorrelationId));
             return new MutationResult(202, new { document.Id, processing.ProcessingId }, Location: $"/api/v1/documents/{document.Id}");
         }, ct);
+    }
 
     private Task<MutationResult> Idempotent(string action, Guid id, string subject, string key, string fingerprint,
-        Func<Task<MutationResult>> execute, CancellationToken ct) => store.TransactionAsync(async () =>
+        Func<Task<MutationResult>> execute, CancellationToken ct)
+    {
+        return store.TransactionAsync(async () =>
     {
         var scope = fingerprints.Hash(JsonSerializer.Serialize(new { subject, action, id, key }));
         await store.LockAsync($"operation:{scope}", ct);
@@ -148,6 +154,7 @@ public sealed class DocumentHandlers(IWriteStore store, IXmlDocuments xml, IFing
 
         return result;
     }, ct);
+    }
 
     private async Task<FiscalDocument> ActiveDocument(Guid id, CancellationToken ct)
     {
@@ -166,6 +173,13 @@ public sealed class DocumentHandlers(IWriteStore store, IXmlDocuments xml, IFing
             throw new AppException("etag_mismatch", 412);
         }
     }
-    public Task<Page<DocumentItem>> Handle(ListDocuments request, CancellationToken ct) => queries.ListAsync(request.Filter, ct);
-    public Task<DocumentDetails?> Handle(GetDocument request, CancellationToken ct) => queries.DetailsAsync(request.Id, ct);
+    public Task<Page<DocumentItem>> Handle(ListDocuments request, CancellationToken ct)
+    {
+        return queries.ListAsync(request.Filter, ct);
+    }
+
+    public Task<DocumentDetails?> Handle(GetDocument request, CancellationToken ct)
+    {
+        return queries.DetailsAsync(request.Id, ct);
+    }
 }

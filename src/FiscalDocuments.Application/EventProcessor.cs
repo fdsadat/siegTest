@@ -74,8 +74,9 @@ public sealed class EventProcessor(IWriteStore store, IXmlDocuments xml, TimePro
         }, ct);
     }
 
-    public Task<bool> FailAsync(IntegrationEvent message, string errorCode, CancellationToken ct) =>
-        store.TransactionAsync(async () =>
+    public Task<bool> FailAsync(IntegrationEvent message, string errorCode, CancellationToken ct)
+    {
+        return store.TransactionAsync(async () =>
         {
             await store.LockAsync($"document:{message.DocumentId}", ct);
             var document = await store.DocumentAsync(message.DocumentId, ct);
@@ -108,22 +109,37 @@ public sealed class EventProcessor(IWriteStore store, IXmlDocuments xml, TimePro
 
             if (!await store.HasFailureAsync(message.ProcessingId, message.EventType, ct))
             {
-                store.Add(new ProcessingFailure { DocumentId = document.Id, ProcessingId = message.ProcessingId,
-                    ContentRevision = message.ContentRevision, Stage = message.EventType, ErrorCode = errorCode, FailedAt = clock.GetUtcNow() });
+                store.Add(new ProcessingFailure
+                {
+                    DocumentId = document.Id,
+                    ProcessingId = message.ProcessingId,
+                    ContentRevision = message.ContentRevision,
+                    Stage = message.EventType,
+                    ErrorCode = errorCode,
+                    FailedAt = clock.GetUtcNow()
+                });
             }
 
             return true;
         }, ct);
+    }
 
-    private void Inbox(string consumer, Guid eventId, DateTimeOffset now) => store.Add(new InboxMessage
-        { Consumer = consumer, EventId = eventId, CompletedAt = now });
-
-    public static string Consumer(string eventType) => eventType switch
+    private void Inbox(string consumer, Guid eventId, DateTimeOffset now)
     {
-        IntegrationEvent.Received => "extraction",
-        IntegrationEvent.Processed => "summary",
-        _ => throw new PermanentProcessingException("unsupported_event")
-    };
+        store.Add(new InboxMessage
+        { Consumer = consumer, EventId = eventId, CompletedAt = now });
+    }
+
+    public static string Consumer(string eventType)
+    {
+        return eventType switch
+        {
+            IntegrationEvent.Received => "extraction",
+            IntegrationEvent.Processed => "summary",
+            _ => throw new PermanentProcessingException("unsupported_event")
+        };
+    }
+
     public static void Validate(IntegrationEvent message)
     {
         _ = Consumer(message.EventType);

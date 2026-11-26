@@ -20,7 +20,10 @@ public sealed class DocumentProcessing
         return processing;
     }
 
-    public bool Matches(int revision, Guid processingId) => ContentRevision == revision && ProcessingId == processingId;
+    public bool Matches(int revision, Guid processingId)
+    {
+        return ContentRevision == revision && ProcessingId == processingId;
+    }
 
     public void Restart(int revision, DateTimeOffset now)
     {

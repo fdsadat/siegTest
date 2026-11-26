@@ -19,7 +19,10 @@ public sealed class XmlTests
         fingerprints = new Fingerprints(Options.Create(new PrivacyOptions { HmacKey = Convert.ToBase64String(Enumerable.Range(1, 32).Select(i => (byte)i).ToArray()) }));
         parser = new FiscalXmlDocuments(fingerprints);
     }
-    private static byte[] Sample(string name) => File.ReadAllBytes(Path.Combine(TestContext.CurrentContext.TestDirectory, "Samples", name));
+    private static byte[] Sample(string name)
+    {
+        return File.ReadAllBytes(Path.Combine(TestContext.CurrentContext.TestDirectory, "Samples", name));
+    }
 
     [TestCase("nfe.xml", DocumentType.NFe, "150.25")]
     [TestCase("cte.xml", DocumentType.CTe, "200.50")]
@@ -214,5 +217,7 @@ public sealed class XmlTests
 
     [Test]
     public void Sanitized_corruption_is_a_permanent_processing_failure()
-        => Assert.That(() => parser.ExtractSanitized("<invalid/>"), Throws.TypeOf<PermanentProcessingException>());
+    {
+        Assert.That(() => parser.ExtractSanitized("<invalid/>"), Throws.TypeOf<PermanentProcessingException>());
+    }
 }

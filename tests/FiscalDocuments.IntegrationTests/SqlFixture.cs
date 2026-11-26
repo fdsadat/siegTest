@@ -87,10 +87,17 @@ public abstract class SqlFixture
         }
     }
 
-    protected static byte[] Sample(string name = "nfe.xml") => File.ReadAllBytes(Path.Combine(TestContext.CurrentContext.TestDirectory, "Samples", name));
-    protected static string Token(string scopes = "documents.read documents.write operations.replay") => new JwtSecurityTokenHandler().WriteToken(
-        new JwtSecurityToken("fiscal-documents", "fiscal-api", [new Claim("sub", "integration-user"), new Claim("scope", scopes)],
-            expires: DateTime.UtcNow.AddHours(1), signingCredentials: new SigningCredentials(new SymmetricSecurityKey(Encoding.UTF8.GetBytes(JwtKey)), SecurityAlgorithms.HmacSha256)));
+    protected static byte[] Sample(string name = "nfe.xml")
+    {
+        return File.ReadAllBytes(Path.Combine(TestContext.CurrentContext.TestDirectory, "Samples", name));
+    }
+
+    protected static string Token(string scopes = "documents.read documents.write operations.replay")
+    {
+        return new JwtSecurityTokenHandler().WriteToken(
+            new JwtSecurityToken("fiscal-documents", "fiscal-api", [new Claim("sub", "integration-user"), new Claim("scope", scopes)],
+                expires: DateTime.UtcNow.AddHours(1), signingCredentials: new SigningCredentials(new SymmetricSecurityKey(Encoding.UTF8.GetBytes(JwtKey)), SecurityAlgorithms.HmacSha256)));
+    }
 
     protected async Task<T> InScopeAsync<T>(Func<IServiceProvider, Task<T>> action)
     {

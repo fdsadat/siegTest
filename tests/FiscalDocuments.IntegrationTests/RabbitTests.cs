@@ -23,8 +23,10 @@ public sealed class RabbitTests : SqlFixture
     private RabbitBroker? cleanupBroker;
     private RabbitOptions rabbit = null!;
 
-    private static string Setting(string name, string fallback) =>
-        Environment.GetEnvironmentVariable("FISCAL_TEST_RABBIT_" + name) is { Length: > 0 } value ? value : fallback;
+    private static string Setting(string name, string fallback)
+    {
+        return Environment.GetEnvironmentVariable("FISCAL_TEST_RABBIT_" + name) is { Length: > 0 } value ? value : fallback;
+    }
 
     [OneTimeSetUp]
     public async Task StartRabbitAsync()
@@ -121,7 +123,11 @@ public sealed class RabbitTests : SqlFixture
         return provider;
     }
 
-    private Task<Acceptance> ReceiveAsync() => InScopeAsync(s => s.GetRequiredService<ISender>().Send(new ReceiveDocument(Sample(), "rabbit-test")));
+    private Task<Acceptance> ReceiveAsync()
+    {
+        return InScopeAsync(s => s.GetRequiredService<ISender>().Send(new ReceiveDocument(Sample(), "rabbit-test")));
+    }
+
     private static async Task WaitAsync(Func<Task<bool>> condition, int seconds = 30)
     {
         using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(seconds));
@@ -130,8 +136,11 @@ public sealed class RabbitTests : SqlFixture
             await Task.Delay(100, deadline.Token);
         }
     }
-    private Task<bool> HasStatusAsync(Guid id, ProcessingStatus status) => InScopeAsync(s =>
+    private Task<bool> HasStatusAsync(Guid id, ProcessingStatus status)
+    {
+        return InScopeAsync(s =>
         s.GetRequiredService<FiscalDbContext>().Processing.AnyAsync(p => p.DocumentId == id && p.Status == status));
+    }
 
     [Test]
     public async Task Full_outbox_broker_consumer_pipeline_retries_transient_error_and_commits_once()

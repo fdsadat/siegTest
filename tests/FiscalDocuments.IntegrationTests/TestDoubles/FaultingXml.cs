@@ -6,7 +6,11 @@ namespace FiscalDocuments.IntegrationTests;
 internal sealed class FaultingXml(IXmlDocuments inner, bool permanent) : IXmlDocuments
 {
     public int Calls;
-    public FiscalXml ValidateAndSanitize(ReadOnlyMemory<byte> bytes) => inner.ValidateAndSanitize(bytes);
+    public FiscalXml ValidateAndSanitize(ReadOnlyMemory<byte> bytes)
+    {
+        return inner.ValidateAndSanitize(bytes);
+    }
+
     public ExtractedData ExtractSanitized(string xml)
     {
         var call = Interlocked.Increment(ref Calls);

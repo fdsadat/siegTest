@@ -40,6 +40,8 @@ public sealed class RabbitTopologyTests
     [TestCase("")]
     [TestCase("bad prefix")]
     [TestCase("bad/prefix")]
-    public void Invalid_prefix_is_rejected_before_connecting(string prefix) =>
+    public void Invalid_prefix_is_rejected_before_connecting(string prefix)
+    {
         Assert.Throws<InvalidOperationException>(() => new RabbitBroker(Options.Create(new RabbitOptions { TopologyPrefix = prefix })));
+    }
 }

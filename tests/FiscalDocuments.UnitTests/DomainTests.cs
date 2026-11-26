@@ -7,8 +7,11 @@ namespace FiscalDocuments.UnitTests;
 [TestFixture]
 public sealed class DomainTests
 {
-    private static FiscalXml Xml(string content = "A", string identity = "identity") => new(DocumentType.NFe, identity,
+    private static FiscalXml Xml(string content = "A", string identity = "identity")
+    {
+        return new(DocumentType.NFe, identity,
         content, "**************", "issuer-hash", DateTimeOffset.Parse("2026-11-25T10:00:00-03:00"), "SP", "<sanitized/>");
+    }
 
     [Test]
     public void Replacement_is_blocked_until_entire_pipeline_finishes()

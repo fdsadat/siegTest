@@ -18,7 +18,10 @@ public sealed class RabbitBroker(IOptions<RabbitOptions> options) : IAsyncDispos
     private IConnection? connection;
     private IChannel? publisher;
     public bool IsConnected => connection?.IsOpen == true;
-    public string Queue(string type) => topologyPrefix + "." + EventProcessor.Consumer(type);
+    public string Queue(string type)
+    {
+        return topologyPrefix + "." + EventProcessor.Consumer(type);
+    }
 
     private static string ValidatePrefix(string prefix)
     {
@@ -118,8 +121,10 @@ public sealed class RabbitBroker(IOptions<RabbitOptions> options) : IAsyncDispos
         finally { publishGate.Release(); }
     }
 
-    public Task PublishEventAsync(IntegrationEvent message, CancellationToken ct) =>
-        PublishAsync(JsonSerializer.Serialize(message, JsonDefaults.Options), message.EventType, EventsExchange, 0, null, ct);
+    public Task PublishEventAsync(IntegrationEvent message, CancellationToken ct)
+    {
+        return PublishAsync(JsonSerializer.Serialize(message, JsonDefaults.Options), message.EventType, EventsExchange, 0, null, ct);
+    }
 
     public async Task DeclareAsync(IChannel channel, CancellationToken ct)
     {
@@ -147,12 +152,18 @@ public sealed class RabbitBroker(IOptions<RabbitOptions> options) : IAsyncDispos
         }
     }
 
-    private static Dictionary<string, object?> QuorumArgs(string deadExchange, string routingKey) => new()
+    private static Dictionary<string, object?> QuorumArgs(string deadExchange, string routingKey)
     {
-        ["x-queue-type"] = "quorum", ["x-dead-letter-exchange"] = deadExchange,
-        ["x-dead-letter-routing-key"] = routingKey, ["x-dead-letter-strategy"] = "at-least-once",
-        ["x-overflow"] = "reject-publish", ["x-max-length"] = 10000
-    };
+        return new()
+        {
+            ["x-queue-type"] = "quorum",
+            ["x-dead-letter-exchange"] = deadExchange,
+            ["x-dead-letter-routing-key"] = routingKey,
+            ["x-dead-letter-strategy"] = "at-least-once",
+            ["x-overflow"] = "reject-publish",
+            ["x-max-length"] = 10000
+        };
+    }
 
     public async ValueTask DisposeAsync()
     {

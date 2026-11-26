@@ -5,6 +5,10 @@ using Microsoft.Extensions.Options;
 
 namespace FiscalDocuments.Infrastructure.Xml;
 
+/// <summary>
+/// Classe gera "digitais" com chave secreta para comparar documentos e identificadores sensíveis.
+/// Depois de armazenados, não tem como obter o original, mas tem como comparar com outro valor para verificar se são iguais.
+/// </summary>
 public sealed class Fingerprints : IFingerprints
 {
     private readonly byte[] key;
