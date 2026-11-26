@@ -7,6 +7,11 @@ namespace FiscalDocuments.Api;
 
 public static class DevelopmentTokenEndpoint
 {
+    /// <summary>
+    /// Endpoint criado apenas para facilitar os testes. Injetado diretamente apenas se estiver em modo DEV.
+    /// </summary>
+    /// <param name="app"></param>
+    /// <exception cref="InvalidOperationException"></exception>
     public static void MapDevelopmentTokenEndpoint(this WebApplication app)
     {
         if (!app.Environment.IsDevelopment() || !string.IsNullOrWhiteSpace(app.Configuration["Jwt:Authority"])) return;

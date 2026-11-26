@@ -17,6 +17,7 @@ var builder = WebApplication.CreateBuilder(args.Where(argument => argument is no
 builder.Services.AddApplication().AddInfrastructure(builder.Configuration);
 builder.Services.AddControllers().AddJsonOptions(options => options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter()));
 builder.Services.AddEndpointsApiExplorer();
+// Swagger**
 builder.Services.AddSwaggerGen(options =>
 {
     options.SwaggerDoc("v1", new Microsoft.OpenApi.Models.OpenApiInfo { Title = "Fiscal Documents API", Version = "v1" });
@@ -38,6 +39,7 @@ builder.Services.AddExceptionHandler<ApiExceptionHandler>();
 builder.Services.Configure<ApiBehaviorOptions>(options => options.InvalidModelStateResponseFactory = _ =>
     new BadRequestObjectResult(new ProblemDetails { Status = 400, Title = "invalid_request_parameters" }));
 
+// Authentication** Valida o token JWT.
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme).AddJwtBearer(options =>
 {
     var issuer = builder.Configuration["Jwt:Issuer"] ?? "fiscal-documents";
@@ -64,12 +66,14 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme).AddJw
         };
     }
 });
+// Authorization** Define as claims.
 builder.Services.AddAuthorization(options =>
 {
     foreach (var permission in new[] { "documents.read", "documents.write", "operations.replay" })
         options.AddPolicy(permission, policy => policy.RequireAuthenticatedUser().RequireClaim("sub")
             .RequireAssertion(context => context.User.FindAll("scope").Any(claim => claim.Value.Split(' ').Contains(permission, StringComparer.Ordinal))));
 });
+// Rate Limiting** Limita a quantidade de requisições.
 builder.Services.AddRateLimiter(options =>
 {
     options.RejectionStatusCode = 429;
@@ -78,12 +82,17 @@ builder.Services.AddRateLimiter(options =>
             _ => new FixedWindowRateLimiterOptions { PermitLimit = 120, Window = TimeSpan.FromMinutes(1), QueueLimit = 0 }));
     options.AddConcurrencyLimiter("uploads", options => { options.PermitLimit = 4; options.QueueLimit = 0; });
 });
-builder.WebHost.ConfigureKestrel(options => options.Limits.MaxRequestBodySize = 21 * 1024 * 1024);
+// Kestrel Configuration** Configura o limite máximo do corpo da requisição.
+builder.WebHost.ConfigureKestrel(options => options.Limits.MaxRequestBodySize = RequestValidation.MaxRequestBytes);
 
 var app = builder.Build();
+// Se o argumento --check-dependencies for passado, verifica se o SQL Server e o RabbitMQ estão disponíveis.
 if (args.Contains("--check-dependencies", StringComparer.Ordinal))
 {
-    try { await app.Services.CheckLocalDependenciesAsync(); }
+    try 
+    { 
+        await app.Services.CheckLocalDependenciesAsync(); 
+    }
     catch (InvalidOperationException exception)
     {
         Console.Error.WriteLine(exception.Message);
@@ -92,12 +101,14 @@ if (args.Contains("--check-dependencies", StringComparer.Ordinal))
     await app.DisposeAsync();
     return;
 }
+// Se o argumento --migrate for passado, aplica as migrações pendentes.
 if (args.Contains("--migrate", StringComparer.Ordinal))
 {
     await app.Services.MigrateDatabaseAsync();
     await DatabaseProvisioning.ProvisionApplicationUserAsync(app.Services, builder.Configuration);
     return;
 }
+// Garante que a chave HMAC esteja configurada corretamente.
 _ = app.Services.GetRequiredService<IFingerprints>();
 app.UseExceptionHandler();
 app.Use(async (context, next) =>

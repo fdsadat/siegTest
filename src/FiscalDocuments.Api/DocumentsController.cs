@@ -15,16 +15,24 @@ namespace FiscalDocuments.Api;
 [Route("api/v1/documents")]
 public sealed class DocumentsController(ISender sender) : ControllerBase
 {
+    /// <summary>
+    /// Enpoint para recebimento de arquivo(s). Como estava no plural, fiz com multipart, para receber até 10 arquivos, 2 MiB por arquivo
+    /// Aplica a política de rate limit "uploads" que permite quatro requisições simultâneas, sem fila de espera.
+    /// O Bearer token deve conter a permissão documents.write. O endpoint de teste adiciona todas as claims.
+    /// </summary>
+    /// <param name="ct"></param>
+    /// <returns></returns>
+    /// <exception cref="AppException"></exception>
     [HttpPost]
     [DisableFormValueModelBinding]
     [Authorize(Policy = "documents.write")]
     [EnableRateLimiting("uploads")]
     [Consumes("multipart/form-data")]
-    [RequestSizeLimit(21 * 1024 * 1024)]
+    [RequestSizeLimit(RequestValidation.MaxRequestBytes)]
     [ProducesResponseType(typeof(BatchResponse), 200)]
     public async Task<IActionResult> Upload(CancellationToken ct)
     {
-        // Nunca use IFormFile/ReadFormAsync: o ASP.NET pode gravar o XML fiscal original em disco.
+        // Não usei o IFormFile/ReadFormAsync: o ASP.NET pode gravar o XML e acabar expondo dados sensiveis.
         if (!MediaTypeHeaderValue.TryParse(Request.ContentType, out var contentType) ||
             !contentType.MediaType.Equals("multipart/form-data", StringComparison.OrdinalIgnoreCase))
         {
@@ -32,22 +40,25 @@ public sealed class DocumentsController(ISender sender) : ControllerBase
             throw new AppException("multipart_required", 415);
         }
 
+        // Em requisições com multiplos arquivos, temos esse header "boundary", que define onde começa e termina cada arquivo.
         var boundary = HeaderUtilities.RemoveQuotes(contentType.Boundary).Value;
         if (string.IsNullOrWhiteSpace(boundary) || boundary.Length > 128)
         {
             throw new AppException("invalid_multipart_boundary");
         }
+        // Define o MultipartReader, que lê os arquivos da requisição, com limites de cabeçalho e tamanho do corpo.
         var reader = new MultipartReader(boundary, Request.Body)
         {
             HeadersCountLimit = 16, 
             HeadersLengthLimit = 8192, 
-            BodyLengthLimit = 21 * 1024 * 1024
+            BodyLengthLimit = RequestValidation.MaxRequestBytes
         };
         var results = new List<BatchItem>();
         MultipartSection? section;
         var totalBytes = 0L;
         while ((section = await reader.ReadNextSectionAsync(ct)) is not null)
         {
+            // Se chegou a 10 arquivos, os proximos retornam erro.
             if (results.Count == 10)
             {
                 results.Add(new BatchItem(10, 400, null, "too_many_files_remaining_items_not_accepted"));
@@ -62,7 +73,13 @@ public sealed class DocumentsController(ISender sender) : ControllerBase
             var inputIndex = results.Count;
             var (bytes, size) = await ReadBoundedAsync(section.Body, ct);
             totalBytes += size;
-            if (totalBytes > 20L * 1024 * 1024) throw new AppException("batch_too_large", 413);
+
+            // Como foi pedido um teste de carga, eu decidi um limite máximo.
+            if (totalBytes > RequestValidation.MaxBatchBytes)
+            {
+                throw new AppException("batch_too_large", 413);
+            }
+
             if (size > RequestValidation.MaxFileBytes)
             {
                 results.Add(new BatchItem(inputIndex, 413, null, "file_too_large"));
@@ -70,6 +87,7 @@ public sealed class DocumentsController(ISender sender) : ControllerBase
             }
             try
             {
+                // Envia o arquivo para o Handler, que valida e persiste. 
                 var accepted = await sender.Send(new ReceiveDocument(bytes, HttpContext.TraceIdentifier), ct);
                 results.Add(new BatchItem(inputIndex, accepted.Disposition == "Accepted" ? 202 : 200, accepted, null));
             }
@@ -82,10 +100,12 @@ public sealed class DocumentsController(ISender sender) : ControllerBase
                 results.Add(new BatchItem(inputIndex, 409, null, exception.Code)); 
             }
         }
+        // Envio sem arquivos.
         if (results.Count == 0)
         {
             throw new AppException("empty_batch");
         }
+        // results é uma lista de resultados do processamento inicial de cada item.
         return Ok(new BatchResponse(results));
     }
 
@@ -178,7 +198,7 @@ public sealed class DocumentsController(ISender sender) : ControllerBase
             {
                 size += read;
                 if (size <= RequestValidation.MaxFileBytes) output.Write(buffer, 0, read);
-                if (size > 21L * 1024 * 1024) throw new AppException("request_too_large", 413);
+                if (size > RequestValidation.MaxRequestBytes) throw new AppException("request_too_large", 413);
             }
             return (size > RequestValidation.MaxFileBytes ? [] : output.ToArray(), size);
         }

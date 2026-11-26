@@ -3,6 +3,8 @@ namespace FiscalDocuments.Application;
 public static class RequestValidation
 {
     public const int MaxFileBytes = 2 * 1024 * 1024;
+    public const int MaxRequestBytes = 21 * 1024 * 1024;
+    public const long MaxBatchBytes = 20L * 1024 * 1024;
     public static void Xml(byte[] bytes)
     {
         if (bytes.Length == 0) throw new AppException("empty_xml");

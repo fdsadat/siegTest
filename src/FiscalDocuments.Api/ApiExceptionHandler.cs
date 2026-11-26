@@ -5,6 +5,10 @@ using Microsoft.AspNetCore.Mvc;
 
 namespace FiscalDocuments.Api;
 
+/// <summary>
+/// Classe para tratamento de exceções, poderia ter um retorno mais completo para o usuario, mas está validando os principais erros gerados.
+/// </summary>
+/// <param name="logger"></param>
 public sealed class ApiExceptionHandler(ILogger<ApiExceptionHandler> logger) : IExceptionHandler
 {
     public async ValueTask<bool> TryHandleAsync(HttpContext httpContext, Exception exception, CancellationToken ct)

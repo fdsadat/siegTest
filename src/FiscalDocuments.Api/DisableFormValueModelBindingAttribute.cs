@@ -3,8 +3,10 @@ using Microsoft.AspNetCore.Mvc.ModelBinding;
 
 namespace FiscalDocuments.Api;
 
-// Os provedores de valores de formulário do MVC leem e armazenam o corpo multipart antes
-// da ação de leitura direta, podendo gravar o XML original sem máscara em um arquivo temporário.
+/// <summary>
+/// Esse atributo faz parte do pedido para que dados sensiveis não sejam salvos,
+/// ele impede que ao ler os arquivos no Upload, os dados não sejam salvos em um arquivo temporario.
+/// </summary>
 [AttributeUsage(AttributeTargets.Method)]
 public sealed class DisableFormValueModelBindingAttribute : Attribute, IResourceFilter
 {

@@ -8,6 +8,12 @@ namespace FiscalDocuments.Infrastructure;
 
 public static class LocalDependencyChecks
 {
+    /// <summary>
+    /// Verifica as conexões com SQL Server e RabbitMQ, para identificar problemas antes de executar as migrations e iniciar o sistema.
+    /// </summary>
+    /// <param name="services"></param>
+    /// <returns></returns>
+    /// <exception cref="InvalidOperationException"></exception>
     public static async Task CheckLocalDependenciesAsync(this IServiceProvider services)
     {
         await using var scope = services.CreateAsyncScope();
@@ -15,7 +21,10 @@ public static class LocalDependencyChecks
         {
             var configured = scope.ServiceProvider.GetRequiredService<FiscalDbContext>().Database.GetConnectionString();
             var connectionString = new SqlConnectionStringBuilder(configured)
-            { InitialCatalog = "master", ConnectTimeout = 10 };
+            { 
+                InitialCatalog = "master", 
+                ConnectTimeout = 10 
+            };
             await using var sql = new SqlConnection(connectionString.ConnectionString);
             using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(15));
             await sql.OpenAsync(deadline.Token);
