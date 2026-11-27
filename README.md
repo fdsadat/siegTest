@@ -1,6 +1,7 @@
 # Fiscal Documents API
 
 - Não sei se vou apresentar o projeto, então passei pela maioria dos arquivos deixando comentários com o que pensei durante a implementação. Sei que não é boa prática deixar tantos comentários, mas como se trata de um teste, acho que pode ajudar na correção.
+- Não criei branches, nem comentários nos commits padronizados. Mas em um ambiente profissional, criaria no padrão definido.
 
 ## Como rodar a aplicação e os testes? (Sem Docker)
 
