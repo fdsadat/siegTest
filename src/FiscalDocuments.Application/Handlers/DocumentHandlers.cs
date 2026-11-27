@@ -4,6 +4,14 @@ using MediatR;
 
 namespace FiscalDocuments.Application;
 
+/// <summary>
+/// Classe com Handlers para o DocumentsController.
+/// </summary>
+/// <param name="store"></param>
+/// <param name="xml"></param>
+/// <param name="fingerprints"></param>
+/// <param name="clock"></param>
+/// <param name="queries"></param>
 public sealed class DocumentHandlers(IWriteStore store, IXmlDocuments xml, IFingerprints fingerprints, TimeProvider clock,
     IDocumentQueries queries) : IRequestHandler<ReceiveDocument, Acceptance>, IRequestHandler<ReplaceDocument, MutationResult>,
     IRequestHandler<DeleteDocument, MutationResult>, IRequestHandler<ReprocessDocument, MutationResult>,

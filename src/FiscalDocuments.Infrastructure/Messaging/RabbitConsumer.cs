@@ -9,6 +9,12 @@ using RabbitMQ.Client.Events;
 
 namespace FiscalDocuments.Infrastructure.Messaging;
 
+/// <summary>
+/// HostedService que é responsavel por consumir as mensagens do RabbitMQ.
+/// </summary>
+/// <param name="scopes"></param>
+/// <param name="broker"></param>
+/// <param name="logger"></param>
 public sealed class RabbitConsumer(IServiceScopeFactory scopes, RabbitBroker broker, ILogger<RabbitConsumer> logger) : BackgroundService
 {
     protected override Task ExecuteAsync(CancellationToken stoppingToken)
