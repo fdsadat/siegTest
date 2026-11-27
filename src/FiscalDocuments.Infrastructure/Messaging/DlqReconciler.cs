@@ -39,7 +39,7 @@ public static class DlqReconciler
             catch
             {
                 await channel.BasicNackAsync(delivery.DeliveryTag, false, true, ct);
-                throw new InvalidOperationException("DLQ item could not be reconciled; delivery retained. Inspect safely using broker administration.");
+                throw new InvalidOperationException("DLQ não conseguiu ser reconciliado; entrega retida.");
             }
         }
         return count;

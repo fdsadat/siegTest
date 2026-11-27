@@ -60,6 +60,7 @@ public sealed class RabbitConsumer(IServiceScopeFactory scopes, RabbitBroker bro
                 EventProcessor.Validate(candidate);
                 message = candidate;
                 await using var scope = scopes.CreateAsyncScope();
+                // processa a mensagem, cria uma transação e salva no Inbox. Posteriormente é enviado um ACK para o RabbitMQ.
                 await scope.ServiceProvider.GetRequiredService<EventProcessor>().ProcessAsync(message, ct);
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }

@@ -2,6 +2,12 @@ using FiscalDocuments.Domain;
 
 namespace FiscalDocuments.Application;
 
+/// <summary>
+/// Processa uma mensagem do RabbitMQ, cria uma transação e salva no Inbox. Posteriormente é enviado um ACK para o RabbitMQ.
+/// </summary>
+/// <param name="store"></param>
+/// <param name="xml"></param>
+/// <param name="clock"></param>
 public sealed class EventProcessor(IWriteStore store, IXmlDocuments xml, TimeProvider clock)
 {
     public async Task<bool> ProcessAsync(IntegrationEvent message, CancellationToken ct)
